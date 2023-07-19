@@ -53,16 +53,26 @@ class OutputModel(BaseModel):
 app = FastAPI()
 
 
+def call_llm(messages: List[Message], json_schema: Any) -> str:
+    # This is a simple mock function. Replace it with your actual logic.
+    return json_schema
+
+
 def call_jsonformer(input_model: InputModel) -> OutputModel:
     # This is a simple mock function. Replace it with your actual logic.
     import time  # noqa: E402
     import uuid
 
-    request_uuid = uuid.uuid4()
-
     assert len(input_model.function_call) == 1, "Only one function call is supported"
 
+    request_uuid = uuid.uuid4()
+
     function_name = input_model.function_call[0].name
+
+    function_args = call_llm(
+        messages=input_model.messages,
+        json_schema=input_model.function_call[0].parameters,
+    )
 
     response = OutputModel(
         id=f"chatcmpl-{request_uuid}",
@@ -75,7 +85,7 @@ def call_jsonformer(input_model: InputModel) -> OutputModel:
                     role="assistant",
                     function_call=FunctionCallResponse(
                         name=function_name,
-                        arguments="{}",
+                        arguments=function_args,
                     ),
                 ),
                 finish_reason="stop",
