@@ -2,8 +2,6 @@ from pydantic import BaseModel, Field
 from typing import List
 from gpt4all import Embed4All
 
-# from functools import lru_cache
-
 embedder = Embed4All()
 
 
@@ -49,6 +47,5 @@ def get_embedding(data: InputRequest) -> OpenAIEmbeddingOutput:
     return OpenAIEmbeddingOutput(data=[embedding_obj])
 
 
-# @lru_cache(maxsize=128)
 def calculate_embedding(text) -> List[float]:
     return embedder.embed(text)
