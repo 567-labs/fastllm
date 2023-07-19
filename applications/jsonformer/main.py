@@ -59,6 +59,9 @@ def call_jsonformer(input_model: InputModel) -> OutputModel:
     import uuid
 
     request_uuid = uuid.uuid4()
+
+    assert len(input_model.function_call) == 1, "Only one function call is supported"
+
     function_name = input_model.function_call[0].name
 
     response = OutputModel(
