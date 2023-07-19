@@ -1,26 +1,16 @@
-# Stage 1: Build Stage
-FROM python:3.9-slim AS builder
-
-WORKDIR /app
-
-COPY requirements.txt .
-
-# Install the app dependencies in a virtual environment
-RUN python -m venv /venv && \
-    /venv/bin/pip install --no-cache-dir --upgrade pip && \
-    /venv/bin/pip install --no-cache-dir -r requirements.txt
-
-# Stage 2: Runtime Stage
+# Use an official Python runtime as the base image
 FROM python:3.9-slim
 
+# Set the working directory in the container
 WORKDIR /app
 
-# Copy the virtual environment from the builder stage
-COPY --from=builder /venv /venv
+# Copy the requirements file into the container
+COPY requirements.txt .
 
-# Add the virtual environment to the PATH
-ENV PATH="/venv/bin:$PATH"
+# Install the app dependencies
+RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy the entire project directory into the container
 COPY . .
 
 # Expose the port that the FastAPI app listens on
