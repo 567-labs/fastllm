@@ -66,6 +66,33 @@ class OutputModel(BaseModel):
     choices: List[Choice]
     usage: Usage
 
+    class Config:
+        schema_extra = {
+            "example": {
+                "id": "chatcmpl-123",
+                "object": "chat.completion",
+                "created": 1234567890,
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "function_call": {
+                                "name": "extract",
+                                "arguments": '{"name": "John Doe", "age": 42}',
+                            },
+                        },
+                        "finish_reason": "function_call",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
+                },
+            }
+        }
+
 
 def call_llm_with_jsonformer(messages: List[Message], function: Function) -> dict:
     prompt = f"""
