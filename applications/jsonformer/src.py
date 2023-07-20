@@ -10,7 +10,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 BREAK = "\n\n"
 # This should be moved to an env variable
-MODEL = "databricks/dolly-v2-7b"
+MODEL = "databricks/dolly-v2-3b"
 model = AutoModelForCausalLM.from_pretrained(MODEL)
 tokenizer = AutoTokenizer.from_pretrained(MODEL)
 
