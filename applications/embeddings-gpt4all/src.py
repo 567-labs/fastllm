@@ -9,42 +9,46 @@ class InputRequest(BaseModel):
     input: str = Field(..., description="The input text")
 
 
+class Usage:
+    prompt_tokens: int = 0
+    total_tokens: int = 0
+
+
 class Embedding(BaseModel):
     object: str = "embedding"
     embedding: List[float]
     index: int = 0
 
-    @classmethod
-    def from_embedding(cls, embedding_list: List[float]):
-        return cls(embedding=embedding_list, index=0)
-
 
 class OpenAIEmbeddingOutput(BaseModel):
     object: str = "list"
     data: List[Embedding]
+    model: str = "gpt4all"
+    usage: Usage = Field(..., default_factory=Usage)
 
     class Config:
         schema_extra = {
-            "example": {
-                "object": "list",
-                "data": [
-                    {
-                        "object": "embedding",
-                        "embedding": [0.0023064255, -0.009327292],
-                        "index": 0,
-                    }
-                ],
-            }
+            "object": "list",
+            "data": [
+                {
+                    "object": "embedding",
+                    "embedding": [
+                        0.0023064255,
+                        -0.009327292,
+                        -0.0028842222,
+                    ],
+                    "index": 0,
+                }
+            ],
+            "model": "gpt4all",
+            "usage": {"prompt_tokens": 0, "total_tokens": 0},
         }
 
 
 def get_embedding(data: InputRequest) -> OpenAIEmbeddingOutput:
     # Perform the embedding calculation here
     embedding = calculate_embedding(data.input)
-
-    # Create the response
-    embedding_obj = Embedding.from_embedding(embedding)
-    return OpenAIEmbeddingOutput(data=[embedding_obj])
+    return OpenAIEmbeddingOutput(data=[Embedding(embedding=embedding)])
 
 
 def calculate_embedding(text) -> List[float]:
