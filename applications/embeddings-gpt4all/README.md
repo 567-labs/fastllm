@@ -55,7 +55,35 @@ The server will respond with the embeddings in the following format:
 
 The `embedding` field contains the embedding values for the input text.
 
-## Docker - FILLME
+## Prebuilt Docker
+
+### Step 1: Pull the Docker Image
+
+To start using a Docker image from Docker Hub, follow these steps:
+
+1. Open a terminal or command prompt.
+
+2. Run the following command to pull the desired Docker image from Docker Hub:
+
+```bash
+docker pull jxnl/embed-gpt4all
+```
+
+This will download the `xnl/embed-gpt4all` image from Docker Hub with the "latest" tag.
+
+### Step 2: Run the Docker Container
+
+Once the Docker image is pulled, you can run a container based on that image:
+
+```bash
+docker run -d -p 8000:8000 jxnl/embed-gpt4all:latest
+```
+
+This command will run the `jxnl/embed-gpt4all` container in detached mode (`-d`) and forward port 8000 on the host to port 8000 inside the container.
+
+### Accessing the Application
+
+After running the container, you can access the application running inside the container through your web browser or any HTTP client by visiting `http://localhost:8000`.
 
 To run this in docker you must be in this directory
 
@@ -75,10 +103,42 @@ This command starts a container in detached mode (-d) and maps the container's p
 
 The FastAPI app will now be accessible at http://localhost:8000 from your local machine.
 
-## Contributing
+### Building your own image
 
-Contributions are welcome! If you have any suggestions, improvements, or bug fixes, please open an issue or submit a pull request.
+Once you have cloned the repository, navigate to the root directory of the application where the Dockerfile is located.
 
-## License
+To build the Docker image, use the `docker build` command. The syntax is as follows:
 
-This project is licensed under the [MIT License](https://opensource.org/licenses/MIT)
+```bash
+docker build -t <image_name>:<tag> .
+```
+
+- `<image_name>`: Choose a meaningful name for your Docker image, e.g., `my-app`.
+- `<tag>`: Specify a version or tag for your image, e.g., `v1.0`.
+
+Replace `<image_name>` and `<tag>` with your desired values. The `.` at the end of the command refers to the current directory, which is where the Dockerfile resides.
+
+Example:
+
+```bash
+docker build -t my-app:v1.0 .
+```
+
+The Docker build process will read the Dockerfile instructions and create an image containing your application and its dependencies.
+
+### Running the Container
+
+Once the Docker image is built, you can run a container based on that image:
+
+```bash
+docker run -d -p <host_port>:8000 <image_name>:<tag>
+```
+
+- `<host_port>`: The port number on your host machine where you want to access the application.
+- `8000`: The port number exposed by the application inside the Docker container.
+
+Example:
+
+```bash
+docker run -d -p 8000:8000 my-app:v1.0
+```

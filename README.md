@@ -2,7 +2,6 @@
 
 A collection of LLM services you can self host via docker or modal labs to support your applications development
 
-
 ## Objectives
 
 The goal of this repo is to provide a series of docker containers, or modal labs deployments of common patterns when using LLMs and provide endpoints that allows you to intergrate easily with existing codebases that use the popular openai api.
@@ -13,7 +12,7 @@ The goal of this repo is to provide a series of docker containers, or modal labs
 * Support JSONFormer api to match it to chatcompletion with function_calls
 * Support Cross Encoders based on sentence transformers for any huggingface model
 * Provide great documentation and runbooks using MkDocs
-* 
+
 ## Prerequisites
 
 Before you begin, ensure that you have the following installed on your system:
@@ -34,6 +33,7 @@ To clone the repository to your local machine, follow these steps:
 ```bash
 git clone https://github.com/jxnl/fastllm.git
 ```
+
 This will create a local copy of the repository on your machine.
 
 ### Building the Docker Image
@@ -75,12 +75,12 @@ Example:
 ```bash
 docker run -d -p 8000:8000 my-app:v1.0
 ```
+
 ### Accessing the Application
 
 After running the container, you can access the application running inside the container through your web browser or any HTTP client by visiting `http://localhost:8000`.
 
-
-## Pull Prebuild dockerImage
+## Pull Prebuild Image
 
 ### Step 1: Pull the Docker Image
 
@@ -123,19 +123,6 @@ To remove a stopped container, use the `docker rm` command followed by the conta
 ```bash
 docker rm <container_id_or_name>
 ```
-### Stopping and Removing Containers
-
-To stop a running container, use the `docker stop` command followed by the container ID or name:
-
-```bash
-docker stop <container_id_or_name>
-```
-
-To remove a stopped container, use the `docker rm` command followed by the container ID or name:
-
-```bash
-docker rm <container_id_or_name>
-```
 
 ### Cleaning Up
 
@@ -146,3 +133,11 @@ docker rmi <image_id_or_name>
 ```
 
 Remember that removing an image is irreversible and cannot be undone.
+
+## Contributing
+
+Contributions are welcome! If you have any suggestions, improvements, or bug fixes, please open an issue or submit a pull request.
+
+## License
+
+This project is licensed under the [MIT License](https://opensource.org/licenses/MIT)
