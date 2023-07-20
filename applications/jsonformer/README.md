@@ -64,7 +64,7 @@ curl http://localhost:8000/v1/chat/completions -H 'Content-Type: application/jso
 }'
 ```
 
-Should have a response like 
+The server should response with the following:
 
 ```json
 {
@@ -82,31 +82,15 @@ Should have a response like
     },
     "finish_reason": "function_call"
   }]
-}```
-
-The server will respond with the embeddings in the following format:
-
-```json
-{
-    "object": "list",
-    "data": [
-    {
-        "object": "embedding",
-        "embedding": [0.0023064255, -0.009327292, ... ],
-        "index": 0
-    }
-    ]
 }
 ```
-
-The `embedding` field contains the embedding values for the input text.
 
 ## Docker - FILLME
 
 To run this in docker you must be in this directory
 
 ```sh
-docker build -t fastapi-embedding .
+docker build -t fastapi-jsonformer .
 ```
 
 This command builds the Docker image with the tag `fastapi-embedding``. Make sure to include the . at the end of the command, indicating that the build context is the current directory.
@@ -114,7 +98,7 @@ This command builds the Docker image with the tag `fastapi-embedding``. Make sur
 Once the image is built, you can run a container using the image:
 
 ```sh
-docker run -d -p 8000:8000 fastapi-embedding
+docker run -d -p 8000:8000 fastapi-jsonformer 
 ```
 
 This command starts a container in detached mode (-d) and maps the container's port 8000 to the host's port 8000. Adjust the port mapping if necessary.
