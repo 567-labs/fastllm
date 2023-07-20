@@ -1,4 +1,6 @@
 import json
+import time
+import uuid
 
 from typing import Any, List, Optional
 from pydantic import BaseModel
@@ -6,8 +8,12 @@ from fastapi import FastAPI
 from jsonformer import Jsonformer
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+# This should be moved to an env variable
+MODEL = "databricks/dolly-v2-7b"
+BREAK = "\n\n"
 
-class FunctionCall(BaseModel):
+
+class Function(BaseModel):
     name: str
     description: str
     parameters: Any
@@ -22,8 +28,9 @@ class Message(BaseModel):
 
 
 class InputModel(BaseModel):
-    model: str
-    function_call: List[FunctionCall]
+    model: str = MODEL
+    stream: bool = False
+    functions: List[Function]
     messages: List[Message]
 
 
@@ -35,6 +42,7 @@ class FunctionCallResponse(BaseModel):
 class MessageResponse(BaseModel):
     role: str
     function_call: FunctionCallResponse
+    content: Optional[str] = None
 
 
 class Choice(BaseModel):
@@ -59,41 +67,43 @@ class OutputModel(BaseModel):
 
 app = FastAPI()
 
-# This should be moved to an env variable
-MODEL = "databricks/dolly-v2-7b"
 
 model = AutoModelForCausalLM.from_pretrained(MODEL)
 tokenizer = AutoTokenizer.from_pretrained(MODEL)
 
 
-def call_llm(messages: List[Message], json_schema: Any) -> str:
-    prompt = "\n\n".join([str(message) for message in messages])
-    prompt += "\n\n"
-    prompt += "Make sure to follow the attribute descriptions and correctly return your data in the following format:\n\n"
-    prompt += json.dumps(json_schema, indent=2)
-    jsonformer = Jsonformer(model, tokenizer, json_schema, prompt)
-    generated_data = json.dumps(jsonformer())
-    return generated_data
+def call_llm(messages: List[Message], function: Function) -> dict:
+    prompt = f"""
+    You will act as perfect router that executes functions or extracts json out of the following messages.
+    
+    You have access to a function `{function.name}`: `{function.description}`
+
+    Arguments:
+    {json.dumps(function.parameters, indent=2)}
+
+    Messages:
+    {BREAK.join([str(message) for message in messages])}
+
+    Returning `{function.name}` with the following arguments:
+    """
+
+    jsonformer = Jsonformer(model, tokenizer, function.parameters, prompt)
+    return jsonformer()
 
 
 def call_jsonformer(input_model: InputModel) -> OutputModel:
-    # This is a simple mock function. Replace it with your actual logic.
-    import time  # noqa: E402
-    import uuid
+    assert input_model.model == MODEL, "Only one model is supported"
+    assert input_model.stream is False, "Only one stream is supported"
+    assert len(input_model.functions) == 1, "Only one function call is supported"
 
-    assert len(input_model.function_call) == 1, "Only one function call is supported"
-
-    request_uuid = uuid.uuid4()
-
-    function_name = input_model.function_call[0].name
-
+    function_name = input_model.functions[0].name
     function_args = call_llm(
         messages=input_model.messages,
-        json_schema=input_model.function_call[0].parameters,
+        function=input_model.functions[0],
     )
 
     response = OutputModel(
-        id=f"chatcmpl-{request_uuid}",
+        id=f"chatcmpl-{uuid.uuid4()}",
         object="chat.completion",
         created=int(time.time()),
         choices=[
@@ -103,10 +113,10 @@ def call_jsonformer(input_model: InputModel) -> OutputModel:
                     role="assistant",
                     function_call=FunctionCallResponse(
                         name=function_name,
-                        arguments=function_args,
+                        arguments=json.dumps(function_args),
                     ),
                 ),
-                finish_reason="stop",
+                finish_reason="function_call",
             )
         ],
         usage=Usage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
