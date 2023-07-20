@@ -1,99 +1,12 @@
-from typing import Any, List, Optional
-from pydantic import BaseModel
 from fastapi import FastAPI
+from src import InputModel, OutputModel, call_jsonformer
 
 
-class FunctionCall(BaseModel):
-    name: str
-    description: str
-    parameters: Any
-
-
-class Message(BaseModel):
-    role: str
-    content: str
-
-
-class InputModel(BaseModel):
-    model: str
-    function_call: List[FunctionCall]
-    messages: List[Message]
-
-
-class FunctionCallResponse(BaseModel):
-    name: str
-    arguments: Optional[str] = None
-
-
-class MessageResponse(BaseModel):
-    role: str
-    function_call: FunctionCallResponse
-
-
-class Choice(BaseModel):
-    index: int
-    message: MessageResponse
-    finish_reason: str
-
-
-class Usage(BaseModel):
-    prompt_tokens: int
-    completion_tokens: int
-    total_tokens: int
-
-
-class OutputModel(BaseModel):
-    id: str
-    object: str
-    created: int
-    choices: List[Choice]
-    usage: Usage
-
-
-app = FastAPI()
-
-
-def call_llm(messages: List[Message], json_schema: Any) -> str:
-    # This is a simple mock function. Replace it with your actual logic.
-    return json_schema
-
-
-def call_jsonformer(input_model: InputModel) -> OutputModel:
-    # This is a simple mock function. Replace it with your actual logic.
-    import time  # noqa: E402
-    import uuid
-
-    assert len(input_model.function_call) == 1, "Only one function call is supported"
-
-    request_uuid = uuid.uuid4()
-
-    function_name = input_model.function_call[0].name
-
-    function_args = call_llm(
-        messages=input_model.messages,
-        json_schema=input_model.function_call[0].parameters,
-    )
-
-    response = OutputModel(
-        id=f"chatcmpl-{request_uuid}",
-        object="chat.completion",
-        created=int(time.time()),
-        choices=[
-            Choice(
-                index=0,
-                message=MessageResponse(
-                    role="assistant",
-                    function_call=FunctionCallResponse(
-                        name=function_name,
-                        arguments=function_args,
-                    ),
-                ),
-                finish_reason="stop",
-            )
-        ],
-        usage=Usage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
-    )
-    return response
+app = FastAPI(
+    title="Jsonformer",
+    description="A FastAPI wrapper for the jsonformer library.",
+    version="0.1.0",
+)
 
 
 @app.post("/v1/chat/completions", response_model=OutputModel)
