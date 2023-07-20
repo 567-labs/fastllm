@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from src import InputModel, OutputModel, call_jsonformer
+from src import InputModel, OutputModel, execute
 
 
 app = FastAPI(
@@ -11,4 +11,4 @@ app = FastAPI(
 
 @app.post("/v1/chat/completions", response_model=OutputModel)
 async def process_chat(input_model: InputModel):
-    return call_jsonformer(input_model)
+    return execute(input_model)

@@ -8,9 +8,11 @@ from fastapi import FastAPI
 from jsonformer import Jsonformer
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+BREAK = "\n\n"
 # This should be moved to an env variable
 MODEL = "databricks/dolly-v2-7b"
-BREAK = "\n\n"
+model = AutoModelForCausalLM.from_pretrained(MODEL)
+tokenizer = AutoTokenizer.from_pretrained(MODEL)
 
 
 class Function(BaseModel):
@@ -65,39 +67,29 @@ class OutputModel(BaseModel):
     usage: Usage
 
 
-app = FastAPI()
-
-
-model = AutoModelForCausalLM.from_pretrained(MODEL)
-tokenizer = AutoTokenizer.from_pretrained(MODEL)
-
-
-def call_llm(messages: List[Message], function: Function) -> dict:
+def call_llm_with_jsonformer(messages: List[Message], function: Function) -> dict:
     prompt = f"""
-    You will act as perfect router that executes functions or extracts json out of the following messages.
+    You will act as perfect router that extracts information out of the following messages in json.
     
-    You have access to a function `{function.name}`: `{function.description}`
+    You have access to a schema `{function.name}`: `{function.description}`
 
-    Arguments:
     {json.dumps(function.parameters, indent=2)}
 
-    Messages:
     {BREAK.join([str(message) for message in messages])}
 
-    Returning `{function.name}` with the following arguments:
+    assistant: returning `{function.name}` with the data according to the schema...
     """
 
     jsonformer = Jsonformer(model, tokenizer, function.parameters, prompt)
     return jsonformer()
 
 
-def call_jsonformer(input_model: InputModel) -> OutputModel:
+def execute(input_model: InputModel) -> OutputModel:
     assert input_model.model == MODEL, "Only one model is supported"
     assert input_model.stream is False, "Only one stream is supported"
     assert len(input_model.functions) == 1, "Only one function call is supported"
 
-    function_name = input_model.functions[0].name
-    function_args = call_llm(
+    function_args = call_llm_with_jsonformer(
         messages=input_model.messages,
         function=input_model.functions[0],
     )
@@ -112,7 +104,7 @@ def call_jsonformer(input_model: InputModel) -> OutputModel:
                 message=MessageResponse(
                     role="assistant",
                     function_call=FunctionCallResponse(
-                        name=function_name,
+                        name=input_model.functions[0].name,
                         arguments=json.dumps(function_args),
                     ),
                 ),
