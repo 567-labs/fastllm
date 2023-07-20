@@ -101,7 +101,7 @@ Once the Docker image is pulled, you can run a container based on that image:
 docker run -d -p 8000:8000 jxnl/embed-gpt4all:latest
 ```
 
-This command will run the `xnl/embed-gpt4all` container in detached mode (`-d`) and forward port 8000 on the host to port 8000 inside the container.
+This command will run the `jxnl/embed-gpt4all` container in detached mode (`-d`) and forward port 8000 on the host to port 8000 inside the container.
 
 ### Accessing the Application
 
