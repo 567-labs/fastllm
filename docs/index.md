@@ -8,7 +8,7 @@ The goal of this repository is to provide a series of Docker containers, or moda
 
 ## Roadmap
 
-- [ ] Support [GPT4All's Embedding API](https://docs.gpt4all.io/gpt4all_python_embedding.html) and match it to [OpenAI Embeddings](https://openai.com/v1/embedding)
+- [x] Support [GPT4All's Embedding API](https://docs.gpt4all.io/gpt4all_python_embedding.html) and match it to [OpenAI Embeddings](https://openai.com/v1/embedding)
 - [ ] Support JSONFormer API to match it to `ChatCompletion` with `function_calls`
 - [ ] Support Cross Encoders based on sentence transformers for any Hugging Face model
 - [ ] Provide great documentation and runbooks using MkDocs
