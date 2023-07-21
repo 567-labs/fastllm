@@ -1,0 +1,52 @@
+site_name: FastLLM
+site_description: A collection of LLM services you can self host via docker or modal labs to support your applications development.
+repo_name: fastllm
+repo_url: https://github.com/jxnl/fastllm
+theme:
+  name: material
+  icon:
+    repo: fontawesome/brands/github
+  features:
+    - navigation.indexes
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.expand
+plugins:
+  - social
+  - search
+nav:
+  - Getting Started:
+      - index.md
+      - Installation: installation.md
+      - Quickstart: quickstart.md
+markdown_extensions:
+  - def_list
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - attr_list
+  - md_in_html
+  - pymdownx.superfences
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - admonition
+  - pymdownx.critic
+  - pymdownx.caret
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.tilde
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+extra:
+  analytics:
+    provider: google
+    property: G-5CR8QXF5CN
+  social:
+    - icon: fontawesome/brands/twitter
+      link: https://twitter.com/jxnlco
+    - icon: fontawesome/brands/github
+      link: https://github.com/jxnl
+copyright: Copyright &copy; 2023 Jason Liu
+
+
