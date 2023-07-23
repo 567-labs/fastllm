@@ -92,6 +92,13 @@ To start using a Docker image from Docker Hub, follow these steps:
 
 ```bash
 docker pull jxnl/embed-gpt4all
+docker run -d -p 8000:8000 jxnl/embed-gpt4all:latest
+```
+
+```python
+import openai
+
+openai.api_base = "http://localhost:8000"
 ```
 
 This will download the `xnl/embed-gpt4all` image from Docker Hub with the "latest" tag.
@@ -101,7 +108,7 @@ This will download the `xnl/embed-gpt4all` image from Docker Hub with the "lates
 Once the Docker image is pulled, you can run a container based on that image:
 
 ```bash
-docker run -d -p 8000:8000 jxnl/embed-gpt4all:latest
+
 ```
 
 This command will run the `jxnl/embed-gpt4all` container in detached mode (`-d`) and forward port 8000 on the host to port 8000 inside the container.
@@ -109,6 +116,20 @@ This command will run the `jxnl/embed-gpt4all` container in detached mode (`-d`)
 ### Accessing the Application
 
 After running the container, you can access the application running inside the container through your web browser or any HTTP client by visiting `http://localhost:8000`.
+
+### Stopping and Removing Containers
+
+To stop a running container, use the `docker stop` command followed by the container ID or name:
+
+```bash
+docker stop <container_id_or_name>
+```
+
+To remove a stopped container, use the `docker rm` command followed by the container ID or name:
+
+```bash
+docker rm <container_id_or_name>
+```
 
 ### Stopping and Removing Containers
 
