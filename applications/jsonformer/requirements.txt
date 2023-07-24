@@ -1,3 +1,9 @@
 fastapi
-pydantic
+transformers
 jsonformer
+torch
+bitsandbytes>=0.39.0
+accelerate
+einops
+scipy
+numpy
