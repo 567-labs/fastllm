@@ -117,7 +117,7 @@ def main(input: InputModel):
     }
 
 
-@stub.function(image=image, gpu="A100")
+@stub.function(image=image)
 @asgi_app()
 def fastapi_app():
     return app
