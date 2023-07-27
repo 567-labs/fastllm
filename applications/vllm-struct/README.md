@@ -3,7 +3,7 @@
 Once you have the github repo cloned and modal set up simply run to try the application
 
 ```bash
-modal server main.py
+modal serve main.py
 ```
 
 To test to go `<URL>/docs` or make a request to something that looks like:
