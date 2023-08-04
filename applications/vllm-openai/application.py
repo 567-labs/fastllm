@@ -47,15 +47,14 @@ def download_model_to_folder():
 
 image = (
     Image.from_dockerhub("nvcr.io/nvidia/pytorch:22.12-py3")
-    .pip_install("torch==2.0.1", index_url="https://download.pytorch.org/whl/cu118")
-    .pip_install(
-        "vllm @ git+https://github.com/vllm-project/vllm.git@bda41c70ddb124134935a90a0d51304d2ac035e8"
-    )
-    .pip_install("fschat")
-    .pip_install("transformer_engine")
-    .pip_install("hf-transfer~=0.1")
     .env({"HF_HUB_ENABLE_HF_TRANSFER": "1"})
+    .pip_install("torch==2.0.1", index_url="https://download.pytorch.org/whl/cu118")
+    .pip_install("hf-transfer~=0.1")
+    .pip_install("huggingface_hub")
     .run_function(download_model_to_folder, secret=Secret.from_name("huggingface"))
+    .pip_install("vllm")
+    .run_commands("yes | python -m pip uninstall transformer-engine")
+    .pip_install("fschat")
 )
 
 stub = Stub("vllm-openai", image=image)
@@ -84,11 +83,13 @@ class Model:
         request_id: str,
         created_time: int,
         model_name: str,
-        request: ChatCompletionRequest,
-        raw_request: Request,
+        request_dict: dict,
+        raw_request=None,
     ):
         from vllm.outputs import RequestOutput
         from vllm.sampling_params import SamplingParams
+
+        request = ChatCompletionRequest.parse_obj(request_dict)
 
         try:
             sampling_params = SamplingParams(
@@ -183,13 +184,7 @@ class Model:
         # Non-streaming response
         final_res: RequestOutput = None
         async for res in result_generator:
-            if await raw_request.is_disconnected():
-                # Abort the request if the client disconnects.
-                await abort_request()
-                return create_error_response(
-                    HTTPStatus.BAD_REQUEST, "Client disconnected"
-                )
-            final_res = res
+            ainal_res = res
         assert final_res is not None
         choices = []
         for output in final_res.outputs:
@@ -274,23 +269,20 @@ async def get_gen_prompt(request) -> str:
         stop_token_ids=conv.stop_token_ids,
     )
 
-    if isinstance(request.messages, str):
-        prompt = request.messages
-    else:
-        for message in request.messages:
-            msg_role = message["role"]
-            if msg_role == "system":
-                conv.system_message = message["content"]
-            elif msg_role == "user":
-                conv.append_message(conv.roles[0], message["content"])
-            elif msg_role == "assistant":
-                conv.append_message(conv.roles[1], message["content"])
-            else:
-                raise ValueError(f"Unknown role: {msg_role}")
+    for message in request.messages:
+        msg_role = message.role
+        if msg_role == "system":
+            conv.system_message = message.content
+        elif msg_role == "user":
+            conv.append_message(conv.roles[0], message.content)
+        elif msg_role == "assistant":
+            conv.append_message(conv.roles[1], message.content)
+        else:
+            raise ValueError(f"Unknown role: {msg_role}")
 
-        # Add a blank message for the assistant.
-        conv.append_message(conv.roles[1], None)
-        prompt = conv.get_prompt()
+    # Add a blank message for the assistant.
+    conv.append_message(conv.roles[1], None)
+    prompt = conv.get_prompt()
 
     return prompt
 
@@ -337,8 +329,7 @@ async def create_chat_completion(request: ChatCompletionRequest, raw_request: Re
         request_id=request_id,
         created_time=created_time,
         model_name=model_name,
-        request=request,
-        raw_request=raw_request,
+        request_dict=request.dict(),
     )
 
 
