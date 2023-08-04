@@ -1,6 +1,5 @@
 # Adapted from
 # https://github.com/lm-sys/FastChat/blob/168ccc29d3f7edc50823016105c024fe2282732a/fastchat/serve/openai_api_server.py
-from config import download_model_to_folder, MODEL
 from modal import Image, Secret, Stub, method, asgi_app
 from http import HTTPStatus
 import time
@@ -14,7 +13,6 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from protocol import (
-    CompletionRequest,
     ChatCompletionRequest,
     ChatCompletionResponse,
     ChatCompletionResponseChoice,
@@ -27,36 +25,13 @@ from protocol import (
     random_uuid,
 )
 
-try:
-    import fastchat
-    from fastchat.conversation import Conversation, SeparatorStyle
-    from fastchat.model.model_adapter import get_conversation_template
-
-    _fastchat_available = True
-except ImportError:
-    _fastchat_available = False
 
 TIMEOUT_KEEP_ALIVE = 5  # seconds
+MODEL_DIR = "/model"
+MODEL = "meta-llama/Llama-2-7b-chat-hf"
 
 logger = logging.getLogger(__name__)
-served_model = "meta-llama/Llama-2-7b-chat-hf"
 app = fastapi.FastAPI()
-
-
-MODEL_DIR = "/model"
-
-image = (
-    Image.from_dockerhub("nvcr.io/nvidia/pytorch:22.12-py3")
-    .pip_install("torch==2.0.1", index_url="https://download.pytorch.org/whl/cu118")
-    .pip_install("vllm")
-    .pip_install("fschat")
-    .pip_install("transformer-engine")
-    .pip_install("hf-transfer~=0.1")
-    .env({"HF_HUB_ENABLE_HF_TRANSFER": "1"})
-    .run_function(download_model_to_folder, secret=Secret.from_name("huggingface"))
-)
-
-stub = Stub("vllm-openai", image=image)
 
 
 def download_model_to_folder():
@@ -64,10 +39,26 @@ def download_model_to_folder():
     import os
 
     snapshot_download(
-        served_model,
-        local_dir="/model",
+        MODEL,
+        local_dir=MODEL_DIR,
         token=os.environ["HUGGINGFACE_TOKEN"],
     )
+
+
+image = (
+    Image.from_dockerhub("nvcr.io/nvidia/pytorch:22.12-py3")
+    .pip_install("torch==2.0.1", index_url="https://download.pytorch.org/whl/cu118")
+    .pip_install(
+        "vllm @ git+https://github.com/vllm-project/vllm.git@bda41c70ddb124134935a90a0d51304d2ac035e8"
+    )
+    .pip_install("fschat")
+    .pip_install("transformer_engine")
+    .pip_install("hf-transfer~=0.1")
+    .env({"HF_HUB_ENABLE_HF_TRANSFER": "1"})
+    .run_function(download_model_to_folder, secret=Secret.from_name("huggingface"))
+)
+
+stub = Stub("vllm-openai", image=image)
 
 
 # ## The model class
@@ -134,7 +125,7 @@ class Model:
             response = ChatCompletionStreamResponse(
                 id=request_id,
                 created=created_time,
-                model=served_model,
+                model=MODEL,
                 choices=[choice_data],
             )
             response_json = response.json(ensure_ascii=False)
@@ -255,7 +246,7 @@ async def validation_exception_handler(request, exc):  # pylint: disable=unused-
 
 
 async def check_model(request) -> Optional[JSONResponse]:
-    if request.model == served_model:
+    if request.model == MODEL:
         return
     ret = create_error_response(
         HTTPStatus.NOT_FOUND,
@@ -265,16 +256,8 @@ async def check_model(request) -> Optional[JSONResponse]:
 
 
 async def get_gen_prompt(request) -> str:
-    if not _fastchat_available:
-        raise ModuleNotFoundError(
-            "fastchat is not installed. Please install fastchat to use "
-            "the chat completion and conversation APIs: `$ pip install fschat`"
-        )
-    if version.parse(fastchat.__version__) < version.parse("0.2.23"):
-        raise ImportError(
-            f"fastchat version is low. Current version: {fastchat.__version__} "
-            "Please upgrade fastchat to use: `$ pip install -U fschat`"
-        )
+    from fastchat.conversation import Conversation, SeparatorStyle
+    from fastchat.model.model_adapter import get_conversation_template
 
     conv = get_conversation_template(request.model)
     conv = Conversation(
@@ -314,7 +297,7 @@ async def get_gen_prompt(request) -> str:
 
 @app.get("/v1/model")
 async def get_model():
-    return {"model": served_model}
+    return {"model": MODEL}
 
 
 @app.post("/v1/chat/completions", response_model=ChatCompletionResponse)
@@ -349,7 +332,7 @@ async def create_chat_completion(request: ChatCompletionRequest, raw_request: Re
     request_id = f"cmpl-{random_uuid()}"
     created_time = int(time.time())
 
-    return await model.generate(
+    return await model.generate.call(
         prompt=prompt,
         request_id=request_id,
         created_time=created_time,
