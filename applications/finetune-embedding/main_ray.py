@@ -58,7 +58,6 @@ def train_model(config, checkpoint_dir=None):
     batch_size = int(config["batch_size"])
     lr = config["lr"]
     use_relu = config["use_relu"]
-    name = f"{n_dims}_{batch_size}_emb"
 
     (
         train_df1,
@@ -95,17 +94,19 @@ def train_model(config, checkpoint_dir=None):
 
     early_stop = EarlyStopping(monitor="val_auc", patience=50, mode="max", verbose=True)
 
+    name = f"sim_d{n_dims}_b{batch_size}_r{use_relu}"
+
     auc = ModelCheckpoint(
         monitor="val_auc",
-        dirpath="checkpoints_stratified",
-        filename=name + "-{epoch:02d}-{val_auc:.2f}",
+        dirpath=".",
+        filename=name + "-{val_auc:.2f}-{epoch:02d}",
         save_top_k=1,
         mode="max",
     )
 
     wandb_logger = WandbLogger(
         name=name,
-        project="finetune-embedding-v3",
+        project="finetune-embedding-v5",
         config={
             "embedding_size": embedding_size,
             "dropout_fraction": dropout_fraction,
@@ -138,8 +139,8 @@ def train_model(config, checkpoint_dir=None):
 embedding_size = 1536
 
 config = {
-    "n_dims": tune.loguniform(embedding_size // 2, embedding_size * 3),
-    "batch_size": tune.choice([32, 64, 100]),
+    "n_dims": tune.uniform(embedding_size // 2, embedding_size * 2),
+    "batch_size": tune.choice([64, 128]),
     "lr": tune.loguniform(1e-5, 1e-3),
     "use_relu": tune.choice([True, False]),
 }
@@ -149,9 +150,9 @@ analysis = ray.tune.run(
     config=config,
     metric="auc",
     mode="max",
-    num_samples=30,
+    num_samples=40,
     local_dir="./ray_results",
 )
 
 print(f"Best trial config: {analysis.best_config}")
-print(f"Best trial final metric score: {analysis.best_result['test_auc']}")
+print(f"Best trial final metric score: {analysis.best_result['auc']}")

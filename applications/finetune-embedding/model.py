@@ -14,6 +14,7 @@ class SimilarityModel(pl.LightningModule):
                 n_dims,
             )
         )
+        torch.nn.init.xavier_uniform_(self.matrix)
         self.dropout_fraction = dropout_fraction
         self.lr = lr
         self.use_relu = use_relu
