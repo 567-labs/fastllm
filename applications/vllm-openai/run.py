@@ -4,7 +4,7 @@ import os
 from modal import Image, Secret, Stub, asgi_app
 
 
-SERVED_MODEL = "meta-llama/Llama-2-7b-chat-hf"
+SERVED_MODEL = "meta-llama/Llama-2-13b-chat-hf"
 
 
 # Avoid using global variables in the download function
@@ -26,7 +26,7 @@ image = (
         "vllm @ git+https://github.com/vllm-project/vllm.git@79af7e96a0e2fc9f340d1939192122c3ae38ff17"
     )
     .run_function(download_model_to_folder, secret=Secret.from_name("huggingface"))
-    # .run_commands("yes | python -m pip uninstall transformer-engine")
+    .run_commands("yes | python -m pip uninstall transformer-engine")
     .pip_install("fschat")
 )
 
