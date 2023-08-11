@@ -71,7 +71,7 @@ def train_model(
         use_relu=False,
     )
 
-    early_stop = EarlyStopping(monitor="val_f1", patience=50, mode="max", verbose=True)
+    early_stop = EarlyStopping(monitor="val_auc", patience=50, mode="max", verbose=True)
 
     name = f"sim_d:{n_dims}_b:{batch_size}_filter:{drop_bad_routers}"
 
@@ -80,12 +80,14 @@ def train_model(
         filename=name,
         save_top_k=1,
         mode="max",
+        save_weights_only=True,
+        every_n_epochs=5,
     )
 
     wandb_logger = WandbLogger(
         name=name,
         project="relevance-embedding",
-        log_model=True,
+        log_model="all",
         config={
             "embedding_size": embedding_size,
             "batch_size": batch_size,
@@ -130,6 +132,8 @@ def tune(n_samples: int):
     import ray
     from ray import tune
 
+    ray.init(num_gpus=1)
+
     def train_from_params(config):
         n_dims = int(config["n_dims"])
         batch_size = int(config["batch_size"])
@@ -150,11 +154,11 @@ def tune(n_samples: int):
     analysis = ray.tune.run(
         train_from_params,
         config=config,
-        metric="f1",
+        metric="auc",
         mode="max",
         num_samples=n_samples,
     )
-    return analysis.best_config, analysis.best_result["f1"]
+    return analysis.best_config, analysis.best_result["auc"]
 
 
 @stub.local_entrypoint()

@@ -48,7 +48,7 @@ def load_df(drop_bad_routers=False):
 
 
 def load_and_split_data(drop_bad_routers: bool):
-    df1, df2, target_similarity = load_df(drop_bad_routers=False)
+    df1, df2, target_similarity = load_df(drop_bad_routers=drop_bad_routers)
 
     # Split data into training and temporary sets (80% training, 20% temporary)
     (
