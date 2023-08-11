@@ -11,7 +11,7 @@ import torch
 
 
 def load_df():
-    df = pd.read_csv("~/Downloads/embedding_dataset.csv")
+    df = pd.read_csv("/root/data/embedding_dataset.csv")
     df["similarity"] = (df["relevancy_tag"] == "RELEVANT").astype(int)
 
     print(f"Loading {len(df)} rows of data")
@@ -53,7 +53,7 @@ def load_and_split_data():
         df2,
         target_similarity,
         stratify=target_similarity,
-        test_size=0.4,
+        test_size=0.2,
         random_state=42,
     )
 
