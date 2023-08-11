@@ -10,8 +10,18 @@ import pandas as pd
 import torch
 
 
-def load_df():
+def load_df(drop_bad_routers=False):
     df = pd.read_csv("/root/data/embedding_dataset.csv")
+
+    if drop_bad_routers:
+        # Find the request_ids that have at least one relevant document
+        request_ids_with_relevant_docs = df[df["relevancy_tag"] == "RELEVANT"][
+            "request_id"
+        ].unique()
+
+        # Filter the dataset to only include rows with request_ids that have relevant documents
+        df = df[df["request_id"].isin(request_ids_with_relevant_docs)]
+
     df["similarity"] = (df["relevancy_tag"] == "RELEVANT").astype(int)
 
     print(f"Loading {len(df)} rows of data")
@@ -37,8 +47,8 @@ def load_df():
     return df1, df2, target_similarity
 
 
-def load_and_split_data():
-    df1, df2, target_similarity = load_df()
+def load_and_split_data(drop_bad_routers: bool):
+    df1, df2, target_similarity = load_df(drop_bad_routers=False)
 
     # Split data into training and temporary sets (80% training, 20% temporary)
     (

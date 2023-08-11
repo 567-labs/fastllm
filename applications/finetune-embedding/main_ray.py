@@ -17,7 +17,9 @@ image = Image.from_dockerhub("nvcr.io/nvidia/pytorch:22.12-py3").pip_install(
 stub = Stub("embedding-finetune", image=image)
 
 
-def train_model(n_dims: int, batch_size: int, lr: float):
+def train_model(
+    n_dims: int, batch_size: int, lr: float, drop_bad_routers: bool = False
+):
     import torch
 
     import pytorch_lightning as pl
@@ -46,7 +48,7 @@ def train_model(n_dims: int, batch_size: int, lr: float):
         train_target,
         val_target,
         test_target,
-    ) = load_and_split_data()
+    ) = load_and_split_data(drop_bad_routers=drop_bad_routers)
 
     train_dataset = EmbeddingDataset(train_df1, train_df2, train_target)
     val_dataset = EmbeddingDataset(val_df1, val_df2, val_target)
@@ -69,27 +71,30 @@ def train_model(n_dims: int, batch_size: int, lr: float):
         use_relu=False,
     )
 
-    early_stop = EarlyStopping(monitor="val_auc", patience=50, mode="max", verbose=True)
+    early_stop = EarlyStopping(monitor="val_f1", patience=50, mode="max", verbose=True)
 
-    name = f"sim_d{n_dims}_b{batch_size}"
+    name = f"sim_d:{n_dims}_b:{batch_size}_filter:{drop_bad_routers}"
 
     auc = ModelCheckpoint(
         monitor="val_auc",
-        dirpath="/root/models/",
-        filename=name + "-{val_auc:.2f}-{epoch:02d}",
+        filename=name,
         save_top_k=1,
         mode="max",
     )
 
     wandb_logger = WandbLogger(
         name=name,
-        project="finetune-embedding-v6",
+        project="relevance-embedding",
+        log_model=True,
         config={
             "embedding_size": embedding_size,
-            "dropout_fraction": dropout_fraction,
             "batch_size": batch_size,
             "lr": lr,
             "n_dims": n_dims,
+            "drop_bad_routers": drop_bad_routers,
+            "train_size": len(train_dataset),
+            "val_size": len(val_dataset),
+            "test_size": len(test_dataset),
         },
     )
 
@@ -108,12 +113,12 @@ def train_model(n_dims: int, batch_size: int, lr: float):
         "recall": resp[0]["test_recall"],
         "precision": resp[0]["test_precision"],
         "f1": resp[0]["test_f1"],
-        "loss": resp[0]["test_loss"],
     }
 
 
 @stub.function(
     gpu="A100",
+    timeout=86400,
     mounts=[
         Mount.from_local_dir(
             "data",
@@ -121,7 +126,7 @@ def train_model(n_dims: int, batch_size: int, lr: float):
         )
     ],
 )
-def tune():
+def tune(n_samples: int):
     import ray
     from ray import tune
 
@@ -129,30 +134,31 @@ def tune():
         n_dims = int(config["n_dims"])
         batch_size = int(config["batch_size"])
         lr = config["lr"]
-        test_results = train_model(n_dims, batch_size, lr)
+        drop_bad_routers = config["drop_bad_routers"]
+        test_results = train_model(n_dims, batch_size, lr, drop_bad_routers)
         tune.report(
             **test_results,
         )
 
     config = {
-        "n_dims": tune.uniform(800, 2200),
-        "batch_size": tune.choice([64, 96, 128]),
+        "n_dims": tune.uniform(500, 3000),
+        "batch_size": tune.choice([32, 64, 96, 128]),
         "lr": tune.loguniform(1e-5, 1e-3),
-        "use_relu": tune.choice([False]),
+        "drop_bad_routers": tune.choice([True, False]),
     }
 
     analysis = ray.tune.run(
         train_from_params,
         config=config,
-        metric="auc",
+        metric="f1",
         mode="max",
-        num_samples=40,
+        num_samples=n_samples,
     )
-    return analysis.best_config, analysis.best_result["auc"]
+    return analysis.best_config, analysis.best_result["f1"]
 
 
 @stub.local_entrypoint()
-def finetune():
-    best_config, best_auc = tune.call()
+def finetune(n_samples: int):
+    best_config, best_auc = tune.call(n_samples=n_samples)
     print("Best config is:", best_config)
     print("Best AUC is:", best_auc)
