@@ -1,0 +1,4 @@
+modal
+fastapi
+pydantic
+sentence-transformers
