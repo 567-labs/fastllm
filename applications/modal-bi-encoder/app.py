@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from src.main import (
-    encode,
-    EncodeInput,
-    EncodeOutput,
+    embeddings,
+    EmbeddingInput,
+    EmbeddingOutput,
     cosine_similarity,
     CosineSimilarityInput,
     CosineSimilarityOutput,
@@ -13,9 +13,12 @@ app = FastAPI(
 )
 
 
-@app.post("/encode", response_model=EncodeOutput)
-def encode_request(input: EncodeInput):
-    return encode(input)
+@app.post("/embeddings", response_model=EmbeddingOutput)
+def embeddings_request(req: EmbeddingInput):
+    """Create embedding vector(s) from input text(s).
+    Modeled after OpenAI Create Embeddings endpoint <https://platform.openai.com/docs/api-reference/embeddings/create>
+    """
+    return embeddings(req)
 
 
 @app.post("/cosine_similarity", response_model=CosineSimilarityOutput)
