@@ -34,17 +34,17 @@ This application is capable or running locally as well as running on [Modal](htt
     uvicorn app:app --reload
     ```
 
-    The server will be running at `http://localhost:8000`.
+    The server will be running at <http://localhost:8000>.
 
-2. Run any of the following sample POST request commands
+2. Run any of the following sample POST request commands OR run the commands from the FastAPI docs <http://localhost:8000/docs>
 
-    **Encode:**
+    **Embeddings:**
 
     ```shell
-    curl -X POST -H "Content-Type: application/json" -d '{"texts": ["hello world", "hi there"]}' localhost:8000/encode
+    curl -X POST -H "Content-Type: application/json" -d '{"input": ["hello world", "hi there"]}' localhost:8000/embeddings
     ```
 
-    expected result: {"embeddings":[[0.034345343708992004,0.03316108137369156,0.021912500262260437, ... ]]}
+    expected result: {"object":"list","data":[{"object":"embedding","embedding":[0.034345392137765884,...,0.01511719822883606],"index":0}],"model":"BAAI/bge-large-en-v1.5","usage":{"prompt_tokens":0,"total_tokens":0}}
 
     **Cosine Similarity:**
 
@@ -72,13 +72,13 @@ This application is capable or running locally as well as running on [Modal](htt
 
 3. Run any of the following sample commands. Your <MODAL_APP_URL> can be found in your [Modal Running Apps](https://modal.com/apps)
 
-    **Encode:**
+    **Embeddings:**
 
     ```shell
-    curl -X POST -H "Content-Type: application/json" -d '{"texts": ["hello world", "hi there"]}' <MODAL_APP_URL>/encode
+    curl -X POST -H "Content-Type: application/json" -d '{"input": ["hello world", "hi there"]}' <MODAL_APP_URL>/embeddings
     ```
 
-    expected result: {"embeddings":[[0.034345343708992004,0.03316108137369156,0.021912500262260437, ... ]]}
+    expected result: {"object":"list","data":[{"object":"embedding","embedding":[0.034345392137765884,...,0.01511719822883606],"index":0}],"model":"BAAI/bge-large-en-v1.5","usage":{"prompt_tokens":0,"total_tokens":0}}
 
     **Cosine Similarity:**
 
