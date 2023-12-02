@@ -1,8 +1,5 @@
-import asyncio
 import subprocess
 from pathlib import Path
-from typing import Iterable, List
-from anyio import Semaphore
 from modal import Image, Stub, Volume, gpu, method
 
 GPU_CONFIG = gpu.A10G()
@@ -25,31 +22,6 @@ LAUNCH_FLAGS = [
     "--port",
     "8000",
 ]
-
-
-def process_rows(rows, max_length=400, min_length=10, split_point=None):
-    for row in rows:
-        sentences = row.split(".")
-        for sentence in sentences:
-            if not sentence:
-                continue
-            if len(sentence) > max_length:
-                half = split_point if split_point is not None else len(sentence) // 2
-                if sentence[:half]:
-                    yield sentence[:half]
-                if len(sentence[half:]) > min_length:
-                    yield sentence[half:]
-            else:
-                yield sentence
-
-
-def generate_batches(xs: List, batch_size=5) -> Iterable[List[str]]:
-    batch = []
-    for x in xs:
-        batch.append(x["text"])
-        if len(batch) == batch_size:
-            yield batch
-            batch = []
 
 
 def spawn_server() -> subprocess.Popen:
@@ -104,26 +76,25 @@ with tei_image.run_inside():
 )
 class TextEmbeddingsInference:
     def __enter__(self):
-        # If the process is running for a long time, the client does not seem to close the connections, results in a pool timeout
         from httpx import AsyncClient
 
         self.process = spawn_server()
         self.client = AsyncClient(base_url="http://127.0.0.1:8000")
-        self.sem = asyncio.Semaphore(100)
 
     def __exit__(self, _exc_type, _exc_value, _traceback):
         self.process.terminate()
 
     @method()
-    async def embed(self, rows: list[str]):
-        async def embed_sentence(text: str):
-            async with self.sem:
-                resp = await self.client.post("/embed", json={"inputs": [text]})
-                return resp
+    async def embed(self, inputs: list[str]):
+        print(f"Recieved {len(inputs)} inputs")
+        resp = self.client.post("/embed", json={"inputs": inputs})
+        resp = await resp
+        resp.raise_for_status()
+        outputs = resp.json()
 
-        tasks = [embed_sentence(chunks) for chunks in process_rows(rows)]
-        completed = await asyncio.gather(*tasks)
-        return completed
+        # Returning a list is slower because of additional Modal-specific overhead,
+        # to be fixed shortly.
+        return np.array(outputs)
 
 
 @stub.function(
@@ -137,31 +108,36 @@ def embed_dataset():
     print("Starting Model Embedding")
     import time
 
-    # Load the dataset as a Hugging Face dataset
-    start = time.perf_counter()
+    start = time.time()
     dataset = load_from_disk(f"{cache_dir}/wikipedia")
-    print(f"Loaded dataset in {time.perf_counter() - start:.2f}s")
+    end = time.time()
+    print(f"Loaded dataset in {end-start}s")  # ~40s
+    subset = dataset["train"].select(range(5))
 
-    # Extract the total size of the dataset
-    ttl_size = len(dataset["train"])
-    sample_size = int(ttl_size * 0.01)
-    print(f"Calculated dataset size of {ttl_size} and sample size of {sample_size}")
-
-    # Iterate over the first 5% of the dataset's rows
-    subset = dataset["train"].select(range(sample_size))
     model = TextEmbeddingsInference()
 
-    print(f"Working with {sample_size} rows")
+    # Text Embedding can only take in 512 tokens at a given time ( Input validation error: `inputs` must have less than 512 tokens. Given: 598 )
+    # Therefore -> Move towards migrating the
+    count = 0
 
-    start = time.perf_counter()
-    for completed in model.embed.map(generate_batches(subset), order_outputs=False):
-        print(
-            f"Completed {len(completed)} batches in {time.perf_counter() - start:.2f}s"
-        )
-        start = time.perf_counter()
+    def generate_batches():
+        nonlocal count
+        for item in subset:
+            sentences = item["text"].split(". ")
+            for sentence in sentences:
+                count += 1
+                if len(sentence) > 400:
+                    continue
+                yield [sentence]
+
+    start = time.time()
+    for output_batch in model.embed.map(generate_batches(), order_outputs=False):
+        # Do something with the outputs.
+        print(f"Generated {len(output_batch)} embeddings")
+    end = time.time()
+    print(f"Took {end-start}s to embed {count} sentences")
 
 
 @stub.local_entrypoint()
 def main():
-    print("start")
     embed_dataset.remote()

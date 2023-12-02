@@ -54,4 +54,6 @@ def check_dataset_exists():
 
 @stub.local_entrypoint()
 def main():
+    # list_all_files.remote()
     download_dataset.remote()
+    # check_dataset_exists.remote()
