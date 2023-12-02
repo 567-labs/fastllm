@@ -1,37 +1,47 @@
-from modal import Image, Stub, Volume
+from modal import Image, Volume, Stub
 
 
-vol = Volume.persisted("wikipedia")
+cache_dir = "/data"
 
-stub = Stub("wikipedia")
-stub.volume = vol
+dataset_name = "gsm8k"
+dataset_config = "main"
+
+volume = Volume.persisted("embedding-wikipedia")
+image = Image.debian_slim().pip_install("datasets")
 
 
-@stub.function(
-    image=Image.debian_slim().pip_install("tqdm", "datasets"),
-    volumes={"/data": vol},
-    timeout=300,
-)
-def embed_dataset():
-    # >>> modal run download.py::embed_dataset
-    from datasets import load_dataset, load_from_disk
+stub = Stub(image=image)
 
-    WIKI, SET = (
-        "wikipedia",
-        "20220301.frr",  # "20210301.en" but its too big for testings
-    )
-    PATH = f"/data/{WIKI}-{SET}"
 
-    # check if dataset is already downloaded
-    try:
-        dataset = load_from_disk(PATH)
-        print("Dataset found, loading...")
-        return dataset
-    except FileNotFoundError:
-        print("Dataset not found, downloading...")
-        pass
-    dataset = load_dataset(WIKI, SET)
-    dataset.save_to_disk(PATH)
-    stub.volume.commit()
+# Set a really high timeout
+@stub.function(volumes={cache_dir: volume}, timeout=3000)
+def download_dataset(cache=False):
+    # Redownload the dataset
+    from datasets import load_dataset
+    import time
 
-    print(f"{len(dataset)=}")
+    start = time.time()
+    dataset = load_dataset("wikipedia", "20220301.en")
+    end = time.time()
+    print(f"Download complete - downloaded files in {end-start}s")
+    if cache:
+        dataset.save_to_disk(f"{cache_dir}/wikipedia")
+
+    volume.commit()
+
+
+@stub.function(volumes={cache_dir: volume})
+def check_dataset_exists():
+    volume.reload()
+    from datasets import load_from_disk
+
+    print("Loading dataset from disk...")
+    dataset = load_from_disk(f"{cache_dir}/wikipedia")
+    print(dataset)  # Print out a quick summary of the dataset
+    print("Dataset loaded.")
+
+
+@stub.local_entrypoint()
+def main():
+    download_dataset.remote()
+    # check_dataset_exists.remote()
