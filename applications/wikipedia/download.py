@@ -32,13 +32,13 @@ def download_dataset(cache=False):
     import time
 
     start = time.time()
-    dataset = load_dataset("wikipedia", "20220301.en")
+    dataset = load_dataset("wikipedia", "20220301.en", num_proc=10)
     end = time.time()
     print(f"Download complete - downloaded files in {end-start}s")
     if cache:
         dataset.save_to_disk(f"{cache_dir}/wikipedia")
 
-    volume.commit()
+        volume.commit()
 
 
 @stub.function(volumes={cache_dir: volume})
@@ -54,6 +54,6 @@ def check_dataset_exists():
 
 @stub.local_entrypoint()
 def main():
-    list_all_files.remote()
-    # download_dataset.remote()
+    # list_all_files.remote()
+    download_dataset.remote()
     # check_dataset_exists.remote()
