@@ -1,3 +1,3 @@
-hf-transfer
 datasets
 modal
+httpx
