@@ -4,6 +4,8 @@ This provides a simple example of how to download a dataset from Hugging Face an
 
 ## Volume
 
+We need to first download our Wikipedia dataset. This will take approximately `450`s if we use the native `load_dataset` functionality from hugging Face.
+
 
 ```bash
 modal serve main.py
