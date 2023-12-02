@@ -13,6 +13,17 @@ image = Image.debian_slim().pip_install("datasets")
 stub = Stub(image=image)
 
 
+@stub.function(volumes={cache_dir: volume})
+def list_all_files():
+    import os
+
+    for dirpath, dirnames, filenames in os.walk(cache_dir):
+        for f in filenames:
+            fp = os.path.join(dirpath, f)
+            size = os.path.getsize(fp)
+            print(f"File: {fp}, Size: {size}")
+
+
 # Set a really high timeout
 @stub.function(volumes={cache_dir: volume}, timeout=3000)
 def download_dataset(cache=False):
@@ -43,5 +54,6 @@ def check_dataset_exists():
 
 @stub.local_entrypoint()
 def main():
-    download_dataset.remote()
+    list_all_files.remote()
+    # download_dataset.remote()
     # check_dataset_exists.remote()
