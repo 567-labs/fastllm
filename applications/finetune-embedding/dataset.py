@@ -19,7 +19,7 @@ def load_df():
     def safe_literal_eval(x):
         try:
             return eval(x)
-        except Exception as e:
+        except Exception:
             return None
 
     df["query_embedding"] = df["query_embedding"].apply(safe_literal_eval)

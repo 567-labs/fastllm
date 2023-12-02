@@ -4,7 +4,7 @@ from typing import List
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
-MODEL_NAME = "cross-encoder/ms-marco-TinyBERT-L-2-v2"
+MODEL_NAME = "sentence-transformers/all-mpnet-base-v2"
 
 app = FastAPI(
     title="Sentence Transformer",

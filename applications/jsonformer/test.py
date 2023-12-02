@@ -18,7 +18,7 @@ completion = openai.ChatCompletion.create(
     messages=[
         {
             "role": "user",
-            "content": f"Consider the data below: Jason is 10 and John is 30",
+            "content": "Consider the data below: Jason is 10 and John is 30",
         },
     ],
     max_tokens=1000,

@@ -127,9 +127,7 @@ class Server:
             )
 
         @app.exception_handler(RequestValidationError)
-        async def validation_exception_handler(
-            request, exc
-        ):  # pylint: disable=unused-argument
+        async def validation_exception_handler(request, exc):  # pylint: disable=unused-argument
             return create_error_response(HTTPStatus.BAD_REQUEST, str(exc))
 
         async def check_model(request) -> Optional[JSONResponse]:

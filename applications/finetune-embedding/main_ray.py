@@ -3,7 +3,7 @@ import torch
 import numpy as np
 
 import pytorch_lightning as pl
-from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
+from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from ray import tune
 from torch.utils.data import DataLoader

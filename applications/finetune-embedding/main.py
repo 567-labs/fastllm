@@ -1,6 +1,6 @@
 import optuna
 from pytorch_lightning.loggers import TensorBoardLogger
-from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
+from pytorch_lightning.callbacks import ModelCheckpoint
 import torch
 from torch.utils.data import DataLoader
 from dataset import EmbeddingDataset, load_and_split_data
@@ -164,7 +164,7 @@ study.optimize(objective, n_trials=20)
 
 # Print the result
 print(f"Number of finished trials: {len(study.trials)}")
-print(f"Best trial:")
+print("Best trial:")
 trial = study.best_trial
 print(f"  Value: {trial.value}")
 print(f"  Params: {trial.params}")
