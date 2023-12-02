@@ -30,7 +30,6 @@ def embed_dataset():
     except FileNotFoundError:
         print("Dataset not found, downloading...")
         pass
-
     dataset = load_dataset(WIKI, SET)
     dataset.save_to_disk(PATH)
     stub.volume.commit()
