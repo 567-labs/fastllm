@@ -1,8 +1,10 @@
 from modal import Image, Stub, Volume
 
-stub = Stub("wikipedia")
 
 vol = Volume.persisted("wikipedia")
+
+stub = Stub("wikipedia")
+stub.volume = vol
 
 
 @stub.function(
@@ -23,6 +25,7 @@ def embed_dataset():
     # check if dataset is already downloaded
     try:
         dataset = load_from_disk(PATH)
+        print("Dataset found, loading...")
         return dataset
     except FileNotFoundError:
         print("Dataset not found, downloading...")
@@ -30,6 +33,6 @@ def embed_dataset():
 
     dataset = load_dataset(WIKI, SET)
     dataset.save_to_disk(PATH)
-    vol.commit()
+    stub.volume.commit()
 
     print(f"{len(dataset)=}")
