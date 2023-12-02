@@ -1,6 +1,7 @@
 import asyncio
 import subprocess
 from pathlib import Path
+from typing import Iterable, List
 from anyio import Semaphore
 from modal import Image, Stub, Volume, gpu, method
 
@@ -24,6 +25,31 @@ LAUNCH_FLAGS = [
     "--port",
     "8000",
 ]
+
+
+def process_rows(rows, max_length=400, min_length=10, split_point=None):
+    for row in rows:
+        sentences = row.split(".")
+        for sentence in sentences:
+            if not sentence:
+                continue
+            if len(sentence) > max_length:
+                half = split_point if split_point is not None else len(sentence) // 2
+                if sentence[:half]:
+                    yield sentence[:half]
+                if len(sentence[half:]) > min_length:
+                    yield sentence[half:]
+            else:
+                yield sentence
+
+
+def generate_batches(xs: List, batch_size=5) -> Iterable[List[str]]:
+    batch = []
+    for x in xs:
+        batch.append(x["text"])
+        if len(batch) == batch_size:
+            yield batch
+            batch = []
 
 
 def spawn_server() -> subprocess.Popen:
@@ -95,33 +121,9 @@ class TextEmbeddingsInference:
                 resp = await self.client.post("/embed", json={"inputs": [text]})
                 return resp
 
-        res = []
-        # Now we need to break it up into individual sentences
-        for row in rows:
-            # First split by .
-            sentences = row.split(".")
-            inputs = []
-            for sentence in sentences:
-                if not sentence:
-                    continue
-                if len(sentence) > 400:
-                    half = len(sentence) // 2
-                    if not sentence[:half]:
-                        inputs.append(sentence[:half])
-                    if len(sentence[half:]) > 10:
-                        inputs.append(sentence[half:])
-                else:
-                    inputs.append(sentence)
-
-            tasks = [embed_sentence(input) for input in inputs]
-            responses = await asyncio.gather(*tasks)
-            outputs = [resp.json() for resp in responses]
-            res.extend(outputs)
-
-        # Returning a list is slower because of additional Modal-specific overhead,
-        # to be fixed shortly.
-        # TODO: Currently resp returns some sort of response from the embedding endpoint which is a json dict. We should look into extracting out the value from the json dict.
-        return np.array(res)
+        tasks = [embed_sentence(chunks) for chunks in process_rows(rows)]
+        completed = await asyncio.gather(*tasks)
+        return completed
 
 
 @stub.function(
@@ -135,11 +137,10 @@ def embed_dataset():
     print("Starting Model Embedding")
     import time
 
-    start = time.time()
     # Load the dataset as a Hugging Face dataset
+    start = time.perf_counter()
     dataset = load_from_disk(f"{cache_dir}/wikipedia")
-    end = time.time()
-    print(f"Loaded dataset in {end-start}")
+    print(f"Loaded dataset in {time.perf_counter() - start:.2f}s")
 
     # Extract the total size of the dataset
     ttl_size = len(dataset["train"])
@@ -151,24 +152,16 @@ def embed_dataset():
     model = TextEmbeddingsInference()
 
     print(f"Working with {sample_size} rows")
-    BATCH_SIZE = 5
 
-    def generate_batches():
-        batch = []
-        for item in subset:
-            batch.append(item["text"])
-            if len(batch) == BATCH_SIZE:
-                yield batch
-                batch = []
-
-    start = time.time()
-    for output_batch in model.embed.map(generate_batches(), order_outputs=False):
-        # Do something with the outputs.
-        pass
-    end = time.time()
-    print(f"Took {end-start}s to embed {len(subset)} sentences")
+    start = time.perf_counter()
+    for completed in model.embed.map(generate_batches(subset), order_outputs=False):
+        print(
+            f"Completed {len(completed)} batches in {time.perf_counter() - start:.2f}s"
+        )
+        start = time.perf_counter()
 
 
 @stub.local_entrypoint()
 def main():
+    print("start")
     embed_dataset.remote()
