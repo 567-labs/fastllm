@@ -9,10 +9,10 @@ embedding_size = 384
 
 # Similarity Model
 class SimilarityModel(pl.LightningModule):
-    def __init__(self, n_dims, dropout_fraction, lr, use_relu):
+    def __init__(self, n_dims, dropout_fraction, lr, use_relu, model_id):
         super(SimilarityModel, self).__init__()
-        self.tokenizer = AutoTokenizer.from_pretrained("BAAI/bge-small-en-v1.5")
-        self.embedding_model = AutoModel.from_pretrained("BAAI/bge-small-en-v1.5")
+        self.tokenizer = AutoTokenizer.from_pretrained(model_id)
+        self.embedding_model = AutoModel.from_pretrained(model_id)
         for param in self.embedding_model.parameters():
             param.requires_grad = False
         self.matrix = torch.nn.Parameter(
