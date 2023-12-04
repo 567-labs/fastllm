@@ -1,9 +1,9 @@
-from datetime import date
+import json
 import subprocess
 from pathlib import Path
 from modal import Image, Stub, Volume, gpu, method
 
-N_GPU = 2
+N_GPU = 10
 GPU_CONFIG = gpu.A10G()
 MODEL_ID = "BAAI/bge-base-en-v1.5"
 BATCH_SIZE = 32
@@ -92,7 +92,7 @@ def generate_batches(xs, batch_size=50):
     # Use up to 10 GPU containers at once.
     concurrency_limit=N_GPU,
     # Allow each container to process up to 10 batches at once.
-    allow_concurrent_inputs=80,
+    allow_concurrent_inputs=100,
 )
 class TextEmbeddingsInference:
     def __enter__(self):
@@ -182,7 +182,7 @@ def embed_dataset(down_scale: float = 0.005):
 
 @stub.local_entrypoint()
 def main():
-    for scale in [0.001, 0.002, 0.005]:
+    for scale in [0.001]:
         with open(f"benchmarks.json", "a") as f:
             benchmark = embed_dataset.remote(down_scale=scale)
-            f.write(benchmark.json(indent=2))
+            f.write(json.dumps(benchmark, indent=2) + "\n")
