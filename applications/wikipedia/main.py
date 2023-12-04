@@ -1,7 +1,9 @@
+from datetime import date
 import subprocess
 from pathlib import Path
 from modal import Image, Stub, Volume, gpu, method
 
+N_GPU = 2
 GPU_CONFIG = gpu.A10G()
 MODEL_ID = "BAAI/bge-base-en-v1.5"
 BATCH_SIZE = 32
@@ -88,9 +90,9 @@ def generate_batches(xs, batch_size=50):
     gpu=GPU_CONFIG,
     image=tei_image,
     # Use up to 10 GPU containers at once.
-    concurrency_limit=10,
+    concurrency_limit=N_GPU,
     # Allow each container to process up to 10 batches at once.
-    allow_concurrent_inputs=40,
+    allow_concurrent_inputs=80,
 )
 class TextEmbeddingsInference:
     def __enter__(self):
@@ -129,6 +131,11 @@ def embed_dataset(down_scale: float = 0.005):
 
     # Extract the total size of the dataset
     ttl_size = len(dataset["train"])
+
+    # Counting all characters in the dataset
+    dataset_chars = 19560538957  # sum(map(len, dataset["train"]["text"]))
+    print(f"Total dataset characters: {dataset_chars}")
+
     sample_size = int(ttl_size * down_scale)
     print(f"Calculated dataset size of {ttl_size} and sample size of {sample_size}")
 
@@ -144,8 +151,14 @@ def embed_dataset(down_scale: float = 0.005):
     )  # 32 is the max batch size of the model
 
     start = time.perf_counter()
+    materialized_batchs = list(batches)
+    print(
+        f"Materialized {len(materialized_batchs)} batches in {time.perf_counter()-start:.2f} seconds"
+    )
+
+    start = time.perf_counter()
     counter = 0
-    for n_chars in model.embed.map(batches, order_outputs=False):
+    for n_chars in model.embed.map(materialized_batchs, order_outputs=False):
         counter += n_chars
     end = time.perf_counter()
 
@@ -153,13 +166,23 @@ def embed_dataset(down_scale: float = 0.005):
     characters_per_second = int(counter / duration)
     extrapolated_duration = int(duration / down_scale)
     extrapolated_duration_fmt = str(datetime.timedelta(seconds=extrapolated_duration))
-    print(f"Downscale factor: {down_scale}")
-    print(f"Processed {counter} characters in {end-start:.2f} seconds")
-    print(f"Throughput: {characters_per_second} characters per second")
-    print(f"Extrapolated duration: {extrapolated_duration_fmt}")
+    extrapolated_duration_tps_fmt = str(
+        datetime.timedelta(seconds=dataset_chars / characters_per_second)
+    )
+    return {
+        "downscale": down_scale,
+        "n_gpu": N_GPU,
+        "duration": duration,
+        "characters_per_second": characters_per_second,
+        "extrapolated_duration": extrapolated_duration,
+        "extrapolated_duration_fmt": extrapolated_duration_fmt,
+        "extrapolated_duration_tps_fmt": extrapolated_duration_tps_fmt,
+    }
 
 
 @stub.local_entrypoint()
 def main():
-    for scale in [0.001, 0.005, 0.01]:
-        embed_dataset.remote(down_scale=scale)
+    for scale in [0.001, 0.002, 0.005]:
+        with open(f"results_{scale}.json", "w") as f:
+            benchmark = embed_dataset.remote(down_scale=scale)
+            f.write(benchmark.json(indent=2))
