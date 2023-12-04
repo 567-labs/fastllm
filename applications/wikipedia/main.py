@@ -79,21 +79,20 @@ with tei_image.run_inside():
 class TextEmbeddingsInference:
     def __enter__(self):
         # If the process is running for a long time, the client does not seem to close the connections, results in a pool timeout
+        from httpx import AsyncClient
+
         self.process = spawn_server()
-        pass
+        self.client = AsyncClient(base_url="http://127.0.0.1:8000")
+        self.sem = asyncio.Semaphore(100)
 
     def __exit__(self, _exc_type, _exc_value, _traceback):
         self.process.terminate()
 
     @method()
     async def embed(self, rows: list[str]):
-        from httpx import AsyncClient
-
-        client = AsyncClient(base_url="http://127.0.0.1:8000")
-
-        async def embed_sentence(sem: Semaphore, text: str):
-            async with sem:
-                resp = await client.post("/embed", json={"inputs": [text]})
+        async def embed_sentence(text: str):
+            async with self.sem:
+                resp = await self.client.post("/embed", json={"inputs": [text]})
                 return resp
 
         res = []
@@ -103,27 +102,25 @@ class TextEmbeddingsInference:
             sentences = row.split(".")
             inputs = []
             for sentence in sentences:
-                # Quick check because some inputs end up being empty
                 if not sentence:
                     continue
                 if len(sentence) > 400:
                     half = len(sentence) // 2
                     if not sentence[:half]:
                         inputs.append(sentence[:half])
-                    if sentence[half:]:
+                    if len(sentence[half:]) > 10:
                         inputs.append(sentence[half:])
                 else:
                     inputs.append(sentence)
-            sem = asyncio.Semaphore(40)
 
-            tasks = [embed_sentence(sem, input) for input in inputs]
+            tasks = [embed_sentence(input) for input in inputs]
             responses = await asyncio.gather(*tasks)
             outputs = [resp.json() for resp in responses]
             res.extend(outputs)
-        client.aclose()
 
         # Returning a list is slower because of additional Modal-specific overhead,
         # to be fixed shortly.
+        # TODO: Currently resp returns some sort of response from the embedding endpoint which is a json dict. We should look into extracting out the value from the json dict.
         return np.array(res)
 
 
