@@ -183,6 +183,6 @@ def embed_dataset(down_scale: float = 0.005):
 @stub.local_entrypoint()
 def main():
     for scale in [0.001, 0.002, 0.005]:
-        with open(f"results_{scale}.json", "w") as f:
+        with open(f"benchmarks.json", "a") as f:
             benchmark = embed_dataset.remote(down_scale=scale)
             f.write(benchmark.json(indent=2))
