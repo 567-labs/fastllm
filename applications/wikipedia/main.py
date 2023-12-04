@@ -1,7 +1,5 @@
-import asyncio
 import subprocess
 from pathlib import Path
-from anyio import Semaphore
 from modal import Image, Stub, Volume, gpu, method
 
 GPU_CONFIG = gpu.A10G()
@@ -68,13 +66,31 @@ with tei_image.run_inside():
     import numpy as np
 
 
+def generate_chunks_from_dataset(xs, chunk_size=400):
+    for data in xs:
+        text = data["text"]
+        for chunk_start in range(0, len(text), chunk_size):
+            yield text[chunk_start : chunk_start + chunk_size]
+
+
+def generate_batches(xs, batch_size=50):
+    batch = []
+    for x in xs:
+        batch.append(x)
+        if len(batch) == batch_size:
+            yield batch
+            batch = []
+    if batch:
+        yield batch
+
+
 @stub.cls(
     gpu=GPU_CONFIG,
     image=tei_image,
-    # Use up to 20 GPU containers at once.
+    # Use up to 10 GPU containers at once.
     concurrency_limit=10,
     # Allow each container to process up to 10 batches at once.
-    allow_concurrent_inputs=10,
+    allow_concurrent_inputs=40,
 )
 class TextEmbeddingsInference:
     def __enter__(self):
@@ -83,15 +99,15 @@ class TextEmbeddingsInference:
 
         self.process = spawn_server()
         self.client = AsyncClient(base_url="http://127.0.0.1:8000")
-        self.sem = asyncio.Semaphore(100)
 
     def __exit__(self, _exc_type, _exc_value, _traceback):
         self.process.terminate()
 
     @method()
-    async def embed(self, rows: list[str]):
-        resp = await self.client.post("/embed", json={"inputs": rows})
-        return resp
+    async def embed(self, texts: list[str]):
+        n_chars = sum(map(len, texts))
+        _ = await self.client.post("/embed", json={"inputs": texts})
+        return n_chars
 
 
 @stub.function(
@@ -102,14 +118,13 @@ class TextEmbeddingsInference:
 def embed_dataset():
     from datasets import load_from_disk
 
-    print("Starting Model Embedding")
     import time
 
     start = time.time()
     # Load the dataset as a Hugging Face dataset
+    print("Loading dataset from disk... ~ 40 seconds")
     dataset = load_from_disk(f"{cache_dir}/wikipedia")
-    end = time.time()
-    print(f"Loaded dataset in {end-start}")
+    print(f"Dataset loaded in {time.time()-start:.2f} seconds")
 
     # Extract the total size of the dataset
     ttl_size = len(dataset["train"])
@@ -121,22 +136,19 @@ def embed_dataset():
     model = TextEmbeddingsInference()
 
     print(f"Working with {sample_size} rows")
-    BATCH_SIZE = 5
 
-    def generate_batches():
-        batch = []
-        for item in subset:
-            batch.append(item["text"])
-            if len(batch) == BATCH_SIZE:
-                yield batch
-                batch = []
+    text_chunks = generate_chunks_from_dataset(subset, chunk_size=400)
+    batches = generate_batches(
+        text_chunks, batch_size=32
+    )  # 32 is the max batch size of the model
 
-    start = time.time()
-    for output_batch in model.embed.map(generate_batches(), order_outputs=False):
-        # Do something with the outputs.
-        pass
-    end = time.time()
-    print(f"Took {end-start}s to embed {len(subset)} sentences")
+    start = time.perf_counter()
+    counter = 0
+    for n_chars in model.embed.map(batches, order_outputs=False):
+        counter += n_chars
+    end = time.perf_counter()
+    print(f"Processed {counter} characters in {end-start:.2f} seconds")
+    print(f"Throughput: {counter/(end-start):.2f} characters per second")
 
 
 @stub.local_entrypoint()
