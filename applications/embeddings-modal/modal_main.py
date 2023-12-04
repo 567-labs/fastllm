@@ -13,6 +13,7 @@ image = (
     "fastapi",
     "sentence-transformers",
     "pydantic",
+    "typing",
   )
   .run_function(download_model)
 )

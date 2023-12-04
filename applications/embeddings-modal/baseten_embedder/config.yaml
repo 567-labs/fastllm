@@ -1,0 +1,16 @@
+environment_variables: {}
+external_package_dirs: []
+model_metadata: {}
+model_name: embedder
+python_version: py311
+requirements:
+  - sentence-transformers
+  - pydantic
+  - hf_transfer
+resources:
+  accelerator: null
+  cpu: "1"
+  memory: 2Gi
+  use_gpu: false
+secrets: {}
+system_packages: []
