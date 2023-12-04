@@ -4,6 +4,7 @@ import pytorch_lightning as pl
 import torchmetrics
 from transformers import AutoModel, AutoTokenizer
 
+# TODO: parameterize this?
 embedding_size = 384
 
 
@@ -33,28 +34,19 @@ class SimilarityModel(pl.LightningModule):
         self.auc = torchmetrics.AUROC(task="binary")
         self.save_hyperparameters()
 
-    def forward(self, text1, text2):
+    # TODO: make it take in List[encoded_inputs] ( i think i should do this)
+    def forward(self, encoded_input):
+        embeddings = []
         with torch.no_grad():
             # pass input through sentence embedding model https://huggingface.co/BAAI/bge-small-en-v1.5#using-huggingface-transformers
-            encoded_input1 = self.tokenizer(
-                text1, return_tensors="pt", padding=True, truncation=True
-            )
-            encoded_input2 = self.tokenizer(
-                text2, return_tensors="pt", padding=True, truncation=True
-            )
-            e1 = self.embedding_model(**encoded_input1)
-            e2 = self.embedding_model(**encoded_input2)
-
+            e = self.embedding_model(**encoded_input)
             # Example: Using the CLS token embedding for sentence representation
-            e1 = e1[0][:, 0]
-            e2 = e2[0][:, 0]
-        e1 = F.dropout(e1, p=self.dropout_fraction)
-        e2 = F.dropout(e2, p=self.dropout_fraction)
+            e = e[0][:, 0]
+        e = F.dropout(e, p=self.dropout_fraction)
         matrix = self.matrix if not self.use_relu else F.relu(self.matrix)
-        modified_embedding_1 = e1 @ matrix
-        modified_embedding_2 = e2 @ matrix
-        similarity = F.cosine_similarity(modified_embedding_1, modified_embedding_2)
-        return similarity.unsqueeze(-1)  # Adding a dimension to match target shape
+        modified_embedding = e @ matrix
+        embeddings.append(modified_embedding)
+        return embeddings
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.lr)
