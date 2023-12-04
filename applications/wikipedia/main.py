@@ -108,10 +108,9 @@ def embed_dataset():
     print("Starting Model Embedding")
     import time
 
-    start = time.time()
+    start = time.perf_counter()
     dataset = load_from_disk(f"{cache_dir}/wikipedia")
-    end = time.time()
-    print(f"Loaded dataset in {end-start}s")  # ~40s
+    print(f"Loaded dataset in {time.perf_counter()-start:.2f}s")  # 40s
     subset = dataset["train"].select(range(5))
 
     model = TextEmbeddingsInference()
