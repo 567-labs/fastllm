@@ -90,38 +90,8 @@ class TextEmbeddingsInference:
 
     @method()
     async def embed(self, rows: list[str]):
-        async def embed_sentence(text: str):
-            async with self.sem:
-                resp = await self.client.post("/embed", json={"inputs": [text]})
-                return resp
-
-        res = []
-        # Now we need to break it up into individual sentences
-        for row in rows:
-            # First split by .
-            sentences = row.split(".")
-            inputs = []
-            for sentence in sentences:
-                if not sentence:
-                    continue
-                if len(sentence) > 400:
-                    half = len(sentence) // 2
-                    if not sentence[:half]:
-                        inputs.append(sentence[:half])
-                    if len(sentence[half:]) > 10:
-                        inputs.append(sentence[half:])
-                else:
-                    inputs.append(sentence)
-
-            tasks = [embed_sentence(input) for input in inputs]
-            responses = await asyncio.gather(*tasks)
-            outputs = [resp.json() for resp in responses]
-            res.extend(outputs)
-
-        # Returning a list is slower because of additional Modal-specific overhead,
-        # to be fixed shortly.
-        # TODO: Currently resp returns some sort of response from the embedding endpoint which is a json dict. We should look into extracting out the value from the json dict.
-        return np.array(res)
+        resp = await self.client.post("/embed", json={"inputs": rows})
+        return resp
 
 
 @stub.function(
