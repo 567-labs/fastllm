@@ -3,6 +3,7 @@ from src.embeddings import (
   embeddings,
   EmbeddingInput,
   EmbeddingOutput,
+  list_models
 )
 
 app = FastAPI(
@@ -13,6 +14,9 @@ app = FastAPI(
 def embed(data: EmbeddingInput):
   return embeddings(data)
 
+@app.get("/list_models")
+def list_models():
+  return list_models
 
 
 

@@ -39,6 +39,9 @@ class EmbeddingOutput(BaseModel):
 def get_model(model_name=model_names["base"]) -> SentenceTransformer:
   return SentenceTransformer(model_name)
 
+def list_models():
+  return model_names
+
 def embeddings(req) -> EmbeddingOutput:
   model = get_model(req.model)
   sentences = req.input if isinstance(req.input, List) else [req.input]
