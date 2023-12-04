@@ -115,20 +115,21 @@ class TextEmbeddingsInference:
     volumes={cache_dir: volume},
     timeout=5000,
 )
-def embed_dataset():
+def embed_dataset(down_scale: float = 0.005):
     from datasets import load_from_disk
 
     import time
+    import datetime
 
-    start = time.time()
+    start = time.perf_counter()
     # Load the dataset as a Hugging Face dataset
     print("Loading dataset from disk... ~ 40 seconds")
     dataset = load_from_disk(f"{cache_dir}/wikipedia")
-    print(f"Dataset loaded in {time.time()-start:.2f} seconds")
+    print(f"Dataset loaded in {time.perf_counter()-start:.2f} seconds")
 
     # Extract the total size of the dataset
     ttl_size = len(dataset["train"])
-    sample_size = int(ttl_size * 0.01)
+    sample_size = int(ttl_size * down_scale)
     print(f"Calculated dataset size of {ttl_size} and sample size of {sample_size}")
 
     # Iterate over the first 5% of the dataset's rows
@@ -147,10 +148,18 @@ def embed_dataset():
     for n_chars in model.embed.map(batches, order_outputs=False):
         counter += n_chars
     end = time.perf_counter()
+
+    duration = end - start
+    characters_per_second = int(counter / duration)
+    extrapolated_duration = int(duration / down_scale)
+    extrapolated_duration_fmt = str(datetime.timedelta(seconds=extrapolated_duration))
+    print(f"Downscale factor: {down_scale}")
     print(f"Processed {counter} characters in {end-start:.2f} seconds")
-    print(f"Throughput: {counter/(end-start):.2f} characters per second")
+    print(f"Throughput: {characters_per_second} characters per second")
+    print(f"Extrapolated duration: {extrapolated_duration_fmt}")
 
 
 @stub.local_entrypoint()
 def main():
-    embed_dataset.remote()
+    for scale in [0.001, 0.005, 0.01]:
+        embed_dataset.remote(down_scale=scale)
