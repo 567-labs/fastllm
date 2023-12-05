@@ -158,3 +158,167 @@
   "extrapolated_duration_fmt": "6:45:57",
   "extrapolated_duration_tps_fmt": "0:56:38.441513"
 }
+{
+  "downscale": 0.001,
+  "n_gpu": 10,
+  "duration": 39.12060924,
+  "characters_per_second": 3583702,
+  "extrapolated_duration": 39120,
+  "extrapolated_duration_fmt": "10:52:00",
+  "extrapolated_duration_tps_fmt": "1:30:58.193499"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 32,
+  "n_gpu": 10,
+  "duration": 55.797684278000006,
+  "characters_per_second": 2512588,
+  "extrapolated_duration": 55797,
+  "extrapolated_duration_fmt": "15:29:57",
+  "extrapolated_duration_tps_fmt": "2:09:45.016468"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 32,
+  "n_gpu": 10,
+  "duration": 35.527137707,
+  "characters_per_second": 3946184,
+  "extrapolated_duration": 35527,
+  "extrapolated_duration_fmt": "9:52:07",
+  "extrapolated_duration_tps_fmt": "1:22:36.823847"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 64,
+  "n_gpu": 10,
+  "duration": 36.879771675,
+  "characters_per_second": 3801450,
+  "extrapolated_duration": 36879,
+  "extrapolated_duration_fmt": "10:14:39",
+  "extrapolated_duration_tps_fmt": "1:25:45.546820"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 128,
+  "n_gpu": 10,
+  "duration": 18.674182830999996,
+  "characters_per_second": 7507510,
+  "extrapolated_duration": 18674,
+  "extrapolated_duration_fmt": "5:11:14",
+  "extrapolated_duration_tps_fmt": "0:43:25.462924"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 200,
+  "n_gpu": 20,
+  "duration": 30.627626173,
+  "characters_per_second": 4577456,
+  "extrapolated_duration": 30627,
+  "extrapolated_duration_fmt": "8:30:27",
+  "extrapolated_duration_tps_fmt": "1:11:13.233638"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 200,
+  "n_gpu": 20,
+  "duration": 25.039010245000004,
+  "characters_per_second": 5599128,
+  "extrapolated_duration": 25039,
+  "extrapolated_duration_fmt": "6:57:19",
+  "extrapolated_duration_tps_fmt": "0:58:13.497373"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 200,
+  "n_gpu": 20,
+  "duration": 22.728412611000003,
+  "characters_per_second": 6168342,
+  "extrapolated_duration": 22728,
+  "extrapolated_duration_fmt": "6:18:48",
+  "extrapolated_duration_tps_fmt": "0:52:51.117775"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 256,
+  "n_gpu": 20,
+  "duration": 13.388801352999998,
+  "characters_per_second": 10471185,
+  "extrapolated_duration": 13388,
+  "extrapolated_duration_fmt": "3:43:08",
+  "extrapolated_duration_tps_fmt": "0:31:08.034894"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 256,
+  "n_gpu": 30,
+  "duration": 22.075031322,
+  "characters_per_second": 6350914,
+  "extrapolated_duration": 22075,
+  "extrapolated_duration_fmt": "6:07:55",
+  "extrapolated_duration_tps_fmt": "0:51:19.956516"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 256,
+  "n_gpu": 30,
+  "duration": 22.781672217000008,
+  "characters_per_second": 6153921,
+  "extrapolated_duration": 22781,
+  "extrapolated_duration_fmt": "6:19:41",
+  "extrapolated_duration_tps_fmt": "0:52:58.548921"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 256,
+  "n_gpu": 30,
+  "n_inputs": 30,
+  "duration": 21.403603631,
+  "characters_per_second": 6550141,
+  "extrapolated_duration": 21403,
+  "extrapolated_duration_fmt": "5:56:43",
+  "extrapolated_duration_tps_fmt": "0:49:46.277541"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 420,
+  "n_gpu": 30,
+  "n_inputs": 30,
+  "duration": 13.386668532000002,
+  "characters_per_second": 10472854,
+  "extrapolated_duration": 13386,
+  "extrapolated_duration_fmt": "3:43:06",
+  "extrapolated_duration_tps_fmt": "0:31:07.737195"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 256,
+  "n_gpu": 30,
+  "n_inputs": 40,
+  "duration": 22.148485491000002,
+  "characters_per_second": 6329851,
+  "extrapolated_duration": 22148,
+  "extrapolated_duration_fmt": "6:09:08",
+  "extrapolated_duration_tps_fmt": "0:51:30.205276"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 512,
+  "n_gpu": 30,
+  "n_inputs": 20,
+  "duration": 21.856657188,
+  "characters_per_second": 6414367,
+  "extrapolated_duration": 21856,
+  "extrapolated_duration_fmt": "6:04:16",
+  "extrapolated_duration_tps_fmt": "0:50:49.488587"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 512,
+  "n_gpu": 50,
+  "n_inputs": 50,
+  "duration": 9.560951485,
+  "characters_per_second": 14663459,
+  "extrapolated_duration": 9560,
+  "extrapolated_duration_fmt": "2:39:20",
+  "extrapolated_duration_tps_fmt": "0:22:13.964855"
+}

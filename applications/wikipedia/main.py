@@ -1,12 +1,15 @@
+from itertools import product
 import json
 import subprocess
 from pathlib import Path
+
 from modal import Image, Stub, Volume, gpu, method
 
-N_GPU = 10
+N_GPU = 50
+N_INPUTS = 30
 GPU_CONFIG = gpu.A10G()
 MODEL_ID = "BAAI/bge-base-en-v1.5"
-BATCH_SIZE = 32
+BATCH_SIZE = 256 * 2
 DOCKER_IMAGE = (
     "ghcr.io/huggingface/text-embeddings-inference:86-0.4.0"  # Ampere 86 for A10s.
     # "ghcr.io/huggingface/text-embeddings-inference:0.4.0" # Ampere 80 for A100s.
@@ -23,6 +26,10 @@ LAUNCH_FLAGS = [
     MODEL_ID,
     "--port",
     "8000",
+    "--max-client-batch-size",
+    str(BATCH_SIZE),
+    "--max-batch-tokens",
+    str(16384 * 3),
 ]
 
 
@@ -92,7 +99,7 @@ def generate_batches(xs, batch_size=50):
     # Use up to 10 GPU containers at once.
     concurrency_limit=N_GPU,
     # Allow each container to process up to 10 batches at once.
-    allow_concurrent_inputs=100,
+    allow_concurrent_inputs=N_INPUTS,
 )
 class TextEmbeddingsInference:
     def __enter__(self):
@@ -117,7 +124,7 @@ class TextEmbeddingsInference:
     volumes={cache_dir: volume},
     timeout=5000,
 )
-def embed_dataset(down_scale: float = 0.005):
+def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
     from datasets import load_from_disk
 
     import time
@@ -147,7 +154,7 @@ def embed_dataset(down_scale: float = 0.005):
 
     text_chunks = generate_chunks_from_dataset(subset, chunk_size=400)
     batches = generate_batches(
-        text_chunks, batch_size=32
+        text_chunks, batch_size=batch_size
     )  # 32 is the max batch size of the model
 
     start = time.perf_counter()
@@ -171,7 +178,9 @@ def embed_dataset(down_scale: float = 0.005):
     )
     return {
         "downscale": down_scale,
+        "batch_size": batch_size,
         "n_gpu": N_GPU,
+        "n_inputs": N_INPUTS,
         "duration": duration,
         "characters_per_second": characters_per_second,
         "extrapolated_duration": extrapolated_duration,
@@ -182,7 +191,8 @@ def embed_dataset(down_scale: float = 0.005):
 
 @stub.local_entrypoint()
 def main():
-    for scale in [0.001]:
+    for scale, batch_size in product([0.001], [256, 512]):
         with open(f"benchmarks.json", "a") as f:
-            benchmark = embed_dataset.remote(down_scale=scale)
+            benchmark = embed_dataset.remote(down_scale=scale, batch_size=batch_size)
+            print(json.dumps(benchmark, indent=2))
             f.write(json.dumps(benchmark, indent=2) + "\n")
