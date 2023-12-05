@@ -98,4 +98,3 @@ class SimilarityModel(pl.LightningModule):
                 target_similarity.float().squeeze(-1),
             ),
         )
-        self.log("test_removed", 1 - (sum(pred_labels) / len(pred_labels)))
