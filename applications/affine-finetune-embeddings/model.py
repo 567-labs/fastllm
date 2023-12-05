@@ -2,20 +2,12 @@ import torch
 import torch.nn.functional as F
 import pytorch_lightning as pl
 import torchmetrics
-from transformers import AutoModel, AutoTokenizer
-
-# TODO: parameterize this?
-embedding_size = 384
 
 
 # Similarity Model
 class SimilarityModel(pl.LightningModule):
-    def __init__(self, n_dims, dropout_fraction, lr, use_relu, model_id):
+    def __init__(self, embedding_size, n_dims, dropout_fraction, lr, use_relu):
         super(SimilarityModel, self).__init__()
-        self.tokenizer = AutoTokenizer.from_pretrained(model_id)
-        self.embedding_model = AutoModel.from_pretrained(model_id)
-        for param in self.embedding_model.parameters():
-            param.requires_grad = False
         self.matrix = torch.nn.Parameter(
             torch.rand(
                 embedding_size,
@@ -34,28 +26,23 @@ class SimilarityModel(pl.LightningModule):
         self.auc = torchmetrics.AUROC(task="binary")
         self.save_hyperparameters()
 
-    # TODO: make it take in List[encoded_inputs] ( i think i should do this)
-    def forward(self, encoded_input):
-        embeddings = []
-        with torch.no_grad():
-            # pass input through sentence embedding model https://huggingface.co/BAAI/bge-small-en-v1.5#using-huggingface-transformers
-            e = self.embedding_model(**encoded_input)
-            # Example: Using the CLS token embedding for sentence representation
-            e = e[0][:, 0]
-        e = F.dropout(e, p=self.dropout_fraction)
+    def forward(self, embedding_1, embedding_2):
+        e1 = F.dropout(embedding_1, p=self.dropout_fraction)
+        e2 = F.dropout(embedding_2, p=self.dropout_fraction)
         matrix = self.matrix if not self.use_relu else F.relu(self.matrix)
-        modified_embedding = e @ matrix
-        embeddings.append(modified_embedding)
-        return embeddings
+        modified_embedding_1 = e1 @ matrix
+        modified_embedding_2 = e2 @ matrix
+        similarity = F.cosine_similarity(modified_embedding_1, modified_embedding_2)
+        return similarity.unsqueeze(-1)  # Adding a dimension to match target shape
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.lr)
 
     def training_step(self, batch, batch_idx):
-        embedding_1, embedding_2, target_similarity = batch
+        embedding_1, embedding_2 = batch
         similarity = self(embedding_1, embedding_2)
-        target_similarity = target_similarity.float().unsqueeze(-1)  # Matching shape
-        pos_weight = torch.tensor([0.89 / 0.11])
+        target_similarity = torch.ones(similarity.shape, device=self.device)  # not sure
+        pos_weight = torch.tensor([0.89 / 0.11], device=self.device)
         loss = F.binary_cross_entropy_with_logits(
             similarity, target_similarity, pos_weight=pos_weight, reduction="mean"
         )
@@ -63,10 +50,10 @@ class SimilarityModel(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        embedding_1, embedding_2, target_similarity = batch
+        embedding_1, embedding_2 = batch
         similarity = self(embedding_1, embedding_2)
-        target_similarity = target_similarity.float().unsqueeze(-1)
-        pos_weight = torch.tensor([0.89 / 0.11])
+        target_similarity = torch.ones(similarity.shape, device=self.device)  # not sure
+        pos_weight = torch.tensor([0.89 / 0.11], device=self.device)
         loss = F.binary_cross_entropy_with_logits(
             similarity, target_similarity, pos_weight=pos_weight, reduction="mean"
         )
@@ -89,10 +76,10 @@ class SimilarityModel(pl.LightningModule):
         self.log("val_removed", 1 - (sum(pred_labels) / len(pred_labels)))
 
     def test_step(self, batch, batch_idx):
-        embedding_1, embedding_2, target_similarity = batch
+        embedding_1, embedding_2 = batch
         similarity = self(embedding_1, embedding_2)
-        target_similarity = target_similarity.float().unsqueeze(-1)
-        pos_weight = torch.tensor([0.89 / 0.11])
+        target_similarity = torch.ones(similarity.shape, device=self.device)  # not sure
+        pos_weight = torch.tensor([0.89 / 0.11], device=self.device)
         loss = F.binary_cross_entropy_with_logits(
             similarity, target_similarity, pos_weight=pos_weight, reduction="mean"
         )
