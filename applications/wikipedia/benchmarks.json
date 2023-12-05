@@ -1,0 +1,160 @@
+{
+  "downscale": 0.001,
+  "n_gpu": 2,
+  "duration": 67.973441256,
+  "characters_per_second": 2062520,
+  "extrapolated_duration": 67973,
+  "extrapolated_duration_fmt": "18:52:53",
+  "extrapolated_duration_tps_fmt": "2:38:03.805712"
+}
+{
+  "downscale": 0.002,
+  "n_gpu": 2,
+  "duration": 126.932127621,
+  "characters_per_second": 2239227,
+  "extrapolated_duration": 63466,
+  "extrapolated_duration_fmt": "17:37:46",
+  "extrapolated_duration_tps_fmt": "2:25:35.397955"
+}
+{
+  "downscale": 0.003,
+  "n_gpu": 2,
+  "duration": 185.84327929600002,
+  "characters_per_second": 2186611,
+  "extrapolated_duration": 61947,
+  "extrapolated_duration_fmt": "17:12:27",
+  "extrapolated_duration_tps_fmt": "2:29:05.596156"
+}{
+  "downscale": 0.001,
+  "n_gpu": 4,
+  "duration": 54.055611473,
+  "characters_per_second": 2593562,
+  "extrapolated_duration": 54055,
+  "extrapolated_duration_fmt": "15:00:55",
+  "extrapolated_duration_tps_fmt": "2:05:41.959266"
+}
+{
+  "downscale": 0.002,
+  "n_gpu": 4,
+  "duration": 108.512611745,
+  "characters_per_second": 2619326,
+  "extrapolated_duration": 54256,
+  "extrapolated_duration_fmt": "15:04:16",
+  "extrapolated_duration_tps_fmt": "2:04:27.775663"
+}
+{
+  "downscale": 0.003,
+  "n_gpu": 4,
+  "duration": 157.210346775,
+  "characters_per_second": 2584862,
+  "extrapolated_duration": 52403,
+  "extrapolated_duration_fmt": "14:33:23",
+  "extrapolated_duration_tps_fmt": "2:06:07.343617"
+}{
+  "downscale": 0.001,
+  "n_gpu": 6,
+  "duration": 51.837911823000006,
+  "characters_per_second": 2704519,
+  "extrapolated_duration": 51837,
+  "extrapolated_duration_fmt": "14:23:57",
+  "extrapolated_duration_tps_fmt": "2:00:32.538931"
+}
+{
+  "downscale": 0.002,
+  "n_gpu": 6,
+  "duration": 108.571174063,
+  "characters_per_second": 2617913,
+  "extrapolated_duration": 54285,
+  "extrapolated_duration_fmt": "15:04:45",
+  "extrapolated_duration_tps_fmt": "2:04:31.806342"
+}
+{
+  "downscale": 0.003,
+  "n_gpu": 6,
+  "duration": 158.26318665399998,
+  "characters_per_second": 2567666,
+  "extrapolated_duration": 52754,
+  "extrapolated_duration_fmt": "14:39:14",
+  "extrapolated_duration_tps_fmt": "2:06:58.023122"
+}
+{
+  "downscale": 0.001,
+  "n_gpu": 10,
+  "duration": 51.495737391000006,
+  "characters_per_second": 2722489,
+  "extrapolated_duration": 51495,
+  "extrapolated_duration_fmt": "14:18:15",
+  "extrapolated_duration_tps_fmt": "1:59:44.799996"
+}
+{
+  "downscale": 0.002,
+  "n_gpu": 10,
+  "duration": 112.757579066,
+  "characters_per_second": 2520716,
+  "extrapolated_duration": 56378,
+  "extrapolated_duration_fmt": "15:39:38",
+  "extrapolated_duration_tps_fmt": "2:09:19.913833"
+}
+{
+  "downscale": 0.003,
+  "n_gpu": 10,
+  "duration": 156.654851753,
+  "characters_per_second": 2594028,
+  "extrapolated_duration": 52218,
+  "extrapolated_duration_fmt": "14:30:18",
+  "extrapolated_duration_tps_fmt": "2:05:40.604402"
+}
+{
+  "downscale": 0.001,
+  "n_gpu": 10,
+  "duration": 24.29562405,
+  "characters_per_second": 5770447,
+  "extrapolated_duration": 24295,
+  "extrapolated_duration_fmt": "6:44:55",
+  "extrapolated_duration_tps_fmt": "0:56:29.778809"
+}
+{
+  "downscale": 0.001,
+  "n_gpu": 15,
+  "duration": 26.550341513,
+  "characters_per_second": 5280407,
+  "extrapolated_duration": 26550,
+  "extrapolated_duration_fmt": "7:22:30",
+  "extrapolated_duration_tps_fmt": "1:01:44.361985"
+}
+{
+  "downscale": 0.001,
+  "n_gpu": 5,
+  "duration": 38.768701959,
+  "characters_per_second": 3616232,
+  "extrapolated_duration": 38768,
+  "extrapolated_duration_fmt": "10:46:08",
+  "extrapolated_duration_tps_fmt": "1:30:09.094040"
+}
+{
+  "downscale": 0.001,
+  "n_gpu": 2,
+  "duration": 70.59970030899999,
+  "characters_per_second": 1985796,
+  "extrapolated_duration": 70599,
+  "extrapolated_duration_fmt": "19:36:39",
+  "extrapolated_duration_tps_fmt": "2:44:10.225782"
+}
+{
+  "downscale": 0.001,
+  "n_gpu": 15,
+  "duration": 27.907161792,
+  "characters_per_second": 5023679,
+  "extrapolated_duration": 27907,
+  "extrapolated_duration_fmt": "7:45:07",
+  "extrapolated_duration_tps_fmt": "1:04:53.668158"
+}
+{
+  "downscale": 0.001,
+  "n_gpu": 10,
+  "duration": 24.357711892,
+  "characters_per_second": 5755738,
+  "extrapolated_duration": 24357,
+  "extrapolated_duration_fmt": "6:45:57",
+  "extrapolated_duration_tps_fmt": "0:56:38.441513"
+}
