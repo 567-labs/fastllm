@@ -157,4 +157,34 @@
   "extrapolated_duration": 24357,
   "extrapolated_duration_fmt": "6:45:57",
   "extrapolated_duration_tps_fmt": "0:56:38.441513"
+}{
+  "downscale": 0.001,
+  "n_gpu": 1,
+  "duration": 36.870355294999996,
+  "characters_per_second": 68993,
+  "extrapolated_duration": 36870,
+  "extrapolated_duration_fmt": "10:14:30",
+  "extrapolated_duration_tps_fmt": "3 days, 6:45:14.834215",
+  "estimated_gpu_load": 0.2780424999999995
+}
+
+{
+  "downscale": 0.001,
+  "n_gpu": 5,
+  "duration": 308.426913367,
+  "characters_per_second": 454553,
+  "extrapolated_duration": 308426,
+  "extrapolated_duration_fmt": "3 days, 13:40:26",
+  "extrapolated_duration_tps_fmt": "11:57:12.471366",
+  "estimated_gpu_load": 0.2450913361385359
+}
+{
+  "downscale": 0.001,
+  "n_gpu": 5,
+  "duration": 328.296571614,
+  "characters_per_second": 427042,
+  "extrapolated_duration": 328296,
+  "extrapolated_duration_fmt": "3 days, 19:11:36",
+  "extrapolated_duration_tps_fmt": "12:43:24.719341",
+  "estimated_gpu_load": 0.25051174089746236
 }

@@ -2,8 +2,10 @@ import json
 import subprocess
 from pathlib import Path
 from modal import Image, Stub, Volume, gpu, method, Secret
+import threading
+import time
 
-N_GPU = 10
+N_GPU = 5
 GPU_CONFIG = gpu.A10G()
 MODEL_ID = "BAAI/bge-base-en-v1.5"
 BATCH_SIZE = 32
@@ -85,6 +87,16 @@ def generate_batches(xs, batch_size=50):
     if batch:
         yield batch
 
+def get_gpu_utilization():
+    try:
+        sp = subprocess.Popen(['nvidia-smi', '--query-gpu=utilization.gpu', '--format=csv,noheader,nounits'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        out_str = sp.communicate()
+        out_list = out_str[0].decode('utf-8').split('\n')
+        out_list = [x for x in out_list if x]
+        return [round(float(x) / 100, 3) for x in out_list]
+    except Exception as e:
+        print("Exception: ", e)
+        return []
 
 @stub.cls(
     gpu=GPU_CONFIG,
@@ -92,25 +104,44 @@ def generate_batches(xs, batch_size=50):
     # Use up to 10 GPU containers at once.
     concurrency_limit=N_GPU,
     # Allow each container to process up to 10 batches at once.
-    allow_concurrent_inputs=100,
+    allow_concurrent_inputs=200,
 )
 class TextEmbeddingsInference:
     def __enter__(self):
         # If the process is running for a long time, the client does not seem to close the connections, results in a pool timeout
         from httpx import AsyncClient
-
+        self.keep_running = True
         self.process = spawn_server()
         self.client = AsyncClient(base_url="http://127.0.0.1:8000")
+        self.gpu_utilization_figures = []
+        def record_gpu_utilization():
+            while self.keep_running:
+                curr_utilization= get_gpu_utilization()
+                self.gpu_utilization_figures.append(curr_utilization[0])
+                time.sleep(1)
+
+        self.gpu_utilization_thread = threading.Thread(target=record_gpu_utilization)
+        self.gpu_utilization_thread.start()
+
 
     def __exit__(self, _exc_type, _exc_value, _traceback):
         self.process.terminate()
+        self.keep_running=False
+        self.gpu_utilization_thread.join()
 
     @method()
     async def embed(self, texts: list[str]):
+        start = time.perf_counter()
         n_chars = sum(map(len, texts))
         res = await self.client.post("/embed", json={"inputs": texts})
         embeddings = res.json()
-        return list(zip(texts,embeddings)),n_chars
+        end = time.perf_counter();
+        total_time = int(end-start)
+        snapshot = self.gpu_utilization_figures[-total_time:]
+        if not snapshot:
+            snapshot = [get_gpu_utilization()[0]]
+        gpu_utilization = sum(snapshot)/len(snapshot)
+        return list(zip(texts,embeddings)),n_chars,gpu_utilization
 
 
 @stub.function(
@@ -120,7 +151,7 @@ class TextEmbeddingsInference:
     secret=Secret.from_name("huggingface-credentials"),
 
 )
-def embed_dataset(down_scale: float = 0.005):
+def embed_dataset(down_scale: float = 0.005,upload_dataset_to_hf=False):
     from datasets import load_from_disk,load_dataset
     import pyarrow as pa
     import pyarrow.parquet as pq
@@ -165,21 +196,23 @@ def embed_dataset(down_scale: float = 0.005):
     start = time.perf_counter()
     counter = 0
     combined_embedding_and_text = []
-    for embedding_and_text,n_chars in model.embed.map(materialized_batchs, order_outputs=False):
+    gpu_utilization_snapshot = []
+    for embedding_and_text,n_chars,gpu_utilization in model.embed.map(materialized_batchs, order_outputs=False):
         counter += n_chars
         combined_embedding_and_text.extend(embedding_and_text)
+        gpu_utilization_snapshot.append(gpu_utilization)
     end = time.perf_counter()
 
+    if upload_dataset_to_hf:
+        texts = [i[0] for i in combined_embedding_and_text]
+        embeddings = [i[1] for i in combined_embedding_and_text]
+        text_array = pa.array(texts)
+        embedding_array = pa.array(embeddings)
+        table = pa.Table.from_arrays([text_array, embedding_array], names=["text", "embedding"])
 
-    texts = [i[0] for i in combined_embedding_and_text]
-    embeddings = [i[1] for i in combined_embedding_and_text]
-    text_array = pa.array(texts)
-    embedding_array = pa.array(embeddings)
-    table = pa.Table.from_arrays([text_array, embedding_array], names=["text", "embedding"])
-
-    pq.write_table(table, "wiki-embeddings.parquet")
-    dataset = load_dataset("parquet", data_files="wiki-embeddings.parquet")
-    dataset.push_to_hub("ivanleomk/wikipedia-embeddings-trial",token=os.environ["HUGGINGFACE_TOKEN"])
+        pq.write_table(table, "wiki-embeddings.parquet")
+        dataset = load_dataset("parquet", data_files="wiki-embeddings.parquet")
+        dataset.push_to_hub("ivanleomk/wikipedia-embeddings-trial",token=os.environ["HUGGINGFACE_TOKEN"])
     
     duration = end - start
     characters_per_second = int(counter / duration)
@@ -196,6 +229,7 @@ def embed_dataset(down_scale: float = 0.005):
         "extrapolated_duration": extrapolated_duration,
         "extrapolated_duration_fmt": extrapolated_duration_fmt,
         "extrapolated_duration_tps_fmt": extrapolated_duration_tps_fmt,
+        "estimated_gpu_load": sum(gpu_utilization_snapshot)/len(gpu_utilization_snapshot)
     }
 
 
