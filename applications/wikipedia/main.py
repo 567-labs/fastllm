@@ -1,4 +1,3 @@
-from contextlib import contextmanager
 import json
 import subprocess
 from pathlib import Path
@@ -30,7 +29,7 @@ LAUNCH_FLAGS = [
     MODEL_ID,
     "--port",
     "8000",
-    "--max-client-batch-siz",
+    "--max-client-batch-size",
     str(BATCH_SIZE),
 ]
 
