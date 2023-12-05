@@ -1,7 +1,7 @@
 import json
 import subprocess
 from pathlib import Path
-from modal import Image, Stub, Volume, gpu, method
+from modal import Image, Stub, Volume, gpu, method, Secret
 
 N_GPU = 10
 GPU_CONFIG = gpu.A10G()
@@ -108,24 +108,30 @@ class TextEmbeddingsInference:
     @method()
     async def embed(self, texts: list[str]):
         n_chars = sum(map(len, texts))
-        _ = await self.client.post("/embed", json={"inputs": texts})
-        return n_chars
+        res = await self.client.post("/embed", json={"inputs": texts})
+        embeddings = res.json()
+        return list(zip(texts,embeddings)),n_chars
 
 
 @stub.function(
-    image=Image.debian_slim().pip_install("datasets"),
+    image=Image.debian_slim().pip_install("datasets","pyarrow"),
     volumes={cache_dir: volume},
     timeout=5000,
+    secret=Secret.from_name("huggingface-credentials"),
+
 )
 def embed_dataset(down_scale: float = 0.005):
-    from datasets import load_from_disk
+    from datasets import load_from_disk,load_dataset
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    import os
 
     import time
     import datetime
 
     start = time.perf_counter()
     # Load the dataset as a Hugging Face dataset
-    print("Loading dataset from disk... ~ 40 seconds")
+    print("Loading dataset from disk...")
     dataset = load_from_disk(f"{cache_dir}/wikipedia")
     print(f"Dataset loaded in {time.perf_counter()-start:.2f} seconds")
 
@@ -158,10 +164,23 @@ def embed_dataset(down_scale: float = 0.005):
 
     start = time.perf_counter()
     counter = 0
-    for n_chars in model.embed.map(materialized_batchs, order_outputs=False):
+    combined_embedding_and_text = []
+    for embedding_and_text,n_chars in model.embed.map(materialized_batchs, order_outputs=False):
         counter += n_chars
+        combined_embedding_and_text.extend(embedding_and_text)
     end = time.perf_counter()
 
+
+    texts = [i[0] for i in combined_embedding_and_text]
+    embeddings = [i[1] for i in combined_embedding_and_text]
+    text_array = pa.array(texts)
+    embedding_array = pa.array(embeddings)
+    table = pa.Table.from_arrays([text_array, embedding_array], names=["text", "embedding"])
+
+    pq.write_table(table, "wiki-embeddings.parquet")
+    dataset = load_dataset("parquet", data_files="wiki-embeddings.parquet")
+    dataset.push_to_hub("ivanleomk/wikipedia-embeddings-trial",token=os.environ["HUGGINGFACE_TOKEN"])
+    
     duration = end - start
     characters_per_second = int(counter / duration)
     extrapolated_duration = int(duration / down_scale)
