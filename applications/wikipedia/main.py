@@ -5,10 +5,14 @@ from modal import Image, Stub, Volume, gpu, method, Secret
 import threading
 import time
 
-N_GPU = 5
+N_GPU = 2
 GPU_CONFIG = gpu.A10G()
 MODEL_ID = "BAAI/bge-base-en-v1.5"
 BATCH_SIZE = 32
+ENABLE_WANDB = True
+WANDB_PROJECT = "MODAL_EMBEDDING_RUN"
+WANDB_GROUP = "RUN-1"
+
 DOCKER_IMAGE = (
     "ghcr.io/huggingface/text-embeddings-inference:86-0.4.0"  # Ampere 86 for A10s.
     # "ghcr.io/huggingface/text-embeddings-inference:0.4.0" # Ampere 80 for A100s.
@@ -62,7 +66,8 @@ tei_image = (
     )
     .dockerfile_commands("ENTRYPOINT []")
     .run_function(download_model, gpu=GPU_CONFIG)
-    .pip_install("httpx")
+    .pip_install("httpx","wandb")
+    
 )
 
 
@@ -104,15 +109,23 @@ def get_gpu_utilization():
     # Use up to 10 GPU containers at once.
     concurrency_limit=N_GPU,
     # Allow each container to process up to 10 batches at once.
-    allow_concurrent_inputs=200,
+    allow_concurrent_inputs=100,
+    secret=Secret.from_name("wandb")
 )
 class TextEmbeddingsInference:
     def __enter__(self):
         # If the process is running for a long time, the client does not seem to close the connections, results in a pool timeout
         from httpx import AsyncClient
+        import wandb
         self.keep_running = True
         self.process = spawn_server()
         self.client = AsyncClient(base_url="http://127.0.0.1:8000")
+
+        if ENABLE_WANDB:
+            wandb.init(
+                project=WANDB_PROJECT, group=WANDB_GROUP, reinit=True
+            )
+       
         self.gpu_utilization_figures = []
         def record_gpu_utilization():
             while self.keep_running:
@@ -125,9 +138,11 @@ class TextEmbeddingsInference:
 
 
     def __exit__(self, _exc_type, _exc_value, _traceback):
-        self.process.terminate()
+        import wandb
         self.keep_running=False
         self.gpu_utilization_thread.join()
+        wandb.finish()
+        self.process.terminate()
 
     @method()
     async def embed(self, texts: list[str]):
@@ -185,7 +200,7 @@ def embed_dataset(down_scale: float = 0.005,upload_dataset_to_hf=False):
     text_chunks = generate_chunks_from_dataset(subset, chunk_size=400)
     batches = generate_batches(
         text_chunks, batch_size=32
-    )  # 32 is the max batch size of the model
+    ) # 32 is the max batch size of the model so we increase by 10x hehe
 
     start = time.perf_counter()
     materialized_batchs = list(batches)
