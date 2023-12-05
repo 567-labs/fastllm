@@ -8,8 +8,8 @@ import time
 N_GPU = 6
 GPU_CONFIG = gpu.A10G()
 MODEL_ID = "BAAI/bge-base-en-v1.5"
-BATCH_SIZE = 256
-ENABLE_WANDB = True
+BATCH_SIZE = 128
+ENABLE_WANDB = False
 WANDB_PROJECT = "MODAL_EMBEDDING_RUN"
 WANDB_GROUP = "RUN-1"
 
@@ -127,32 +127,13 @@ class TextEmbeddingsInference:
     def __enter__(self):
         # If the process is running for a long time, the client does not seem to close the connections, results in a pool timeout
         from httpx import AsyncClient
-        import wandb
 
         self.keep_running = True
         self.process = spawn_server()
         self.client = AsyncClient(base_url="http://127.0.0.1:8000")
 
-        if ENABLE_WANDB:
-            wandb.init(project=WANDB_PROJECT, group=WANDB_GROUP, reinit=True)
-
-        self.gpu_utilization_figures = []
-
-        def record_gpu_utilization():
-            while self.keep_running:
-                curr_utilization = get_gpu_utilization()
-                self.gpu_utilization_figures.append(curr_utilization[0])
-                time.sleep(1)
-
-        self.gpu_utilization_thread = threading.Thread(target=record_gpu_utilization)
-        self.gpu_utilization_thread.start()
-
     def __exit__(self, _exc_type, _exc_value, _traceback):
-        import wandb
-
         self.keep_running = False
-        self.gpu_utilization_thread.join()
-        wandb.finish()
         self.process.terminate()
 
     @method()
@@ -163,11 +144,8 @@ class TextEmbeddingsInference:
         embeddings = res.json()
         end = time.perf_counter()
         total_time = int(end - start)
-        snapshot = self.gpu_utilization_figures[-total_time:]
-        if not snapshot:
-            snapshot = [get_gpu_utilization()[0]]
-        gpu_utilization = sum(snapshot) / len(snapshot)
-        return n_chars, gpu_utilization
+        print(f"Processed {n_chars} characters in {total_time} seconds")
+        return embeddings, n_chars
 
 
 @stub.function(
@@ -177,7 +155,7 @@ class TextEmbeddingsInference:
     secret=Secret.from_name("huggingface-credentials"),
 )
 def embed_dataset(down_scale: float = 0.005, upload_dataset_to_hf=False):
-    from datasets import load_from_disk, load_dataset
+    from datasets import load_from_disk
     import pyarrow as pa
     import pyarrow.parquet as pq
     import os
@@ -218,12 +196,10 @@ def embed_dataset(down_scale: float = 0.005, upload_dataset_to_hf=False):
 
     start = time.perf_counter()
     counter = 0
-    gpu_utilization_snapshot = []
-    for _, n_chars, gpu_utilization in model.embed.map(
-        materialized_batchs, order_outputs=False
+    for text, (embedding, n_chars) in zip(
+        materialized_batchs, model.embed.map(materialized_batchs, order_outputs=True)
     ):
         counter += n_chars
-        gpu_utilization_snapshot.append(gpu_utilization)
 
     end = time.perf_counter()
 
@@ -242,14 +218,13 @@ def embed_dataset(down_scale: float = 0.005, upload_dataset_to_hf=False):
         "extrapolated_duration": extrapolated_duration,
         "extrapolated_duration_fmt": extrapolated_duration_fmt,
         "extrapolated_duration_tps_fmt": extrapolated_duration_tps_fmt,
-        "estimated_gpu_load": sum(gpu_utilization_snapshot)
-        / len(gpu_utilization_snapshot),
     }
 
 
 @stub.local_entrypoint()
 def main():
-    for scale in [0.001]:
+    for scale in [0.0001]:
         with open(f"benchmarks.json", "a") as f:
             benchmark = embed_dataset.remote(down_scale=scale)
+            print(json.dumps(benchmark, indent=2))
             f.write(json.dumps(benchmark, indent=2) + "\n")
