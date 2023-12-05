@@ -6,7 +6,7 @@ from pathlib import Path
 from modal import Image, Stub, Volume, gpu, method
 
 N_GPU = 50
-N_INPUTS = 30
+N_INPUTS = 20
 GPU_CONFIG = gpu.A10G()
 MODEL_ID = "BAAI/bge-base-en-v1.5"
 BATCH_SIZE = 256 * 2
