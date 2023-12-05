@@ -17,6 +17,7 @@ from sentence_transformers import SentenceTransformer
 from functools import lru_cache
 from pydantic import BaseModel, Field
 from typing import List, Union
+import time
 
 model_names = {
   "base": "BAAI/bge-base-en-v1.5",
@@ -57,7 +58,10 @@ def get_model(model_name=model_names["base"]) -> SentenceTransformer:
 def embeddings(req):
   model = get_model(req["model"])
   sentences = req["input"] if isinstance(req["input"], List) else [req["input"]]
+  start = time.time()
   embeddings = model.encode(sentences, convert_to_tensor=True)
+  end = time.time()
+  print(f"Encoded {len(sentences)} inputs in {end-start} s")
   return EmbeddingOutput(
     object= "list",
     data=[Embedding(embedding=e, index=i) 
