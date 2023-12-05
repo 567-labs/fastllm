@@ -45,7 +45,12 @@ def list_models():
 def embeddings(req) -> EmbeddingOutput:
   model = get_model(req.model)
   sentences = req.input if isinstance(req.input, List) else [req.input]
+  import time
+
+  start = time.time()
   embeddings = model.encode(sentences, convert_to_tensor=True)
+  end = time.time()
+  print(f"Embedded {len(sentences)} input(s) in {end-start}s")
   return EmbeddingOutput(
     object= "list",
     data=[Embedding(embedding=e.tolist(), index=i) for i, e in enumerate(embeddings)], # Note the tolist() here
