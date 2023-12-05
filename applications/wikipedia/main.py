@@ -167,7 +167,7 @@ class TextEmbeddingsInference:
         if not snapshot:
             snapshot = [get_gpu_utilization()[0]]
         gpu_utilization = sum(snapshot) / len(snapshot)
-        return list(zip(texts, embeddings)), n_chars, gpu_utilization
+        return n_chars, gpu_utilization
 
 
 @stub.function(
@@ -218,34 +218,14 @@ def embed_dataset(down_scale: float = 0.005, upload_dataset_to_hf=False):
 
     start = time.perf_counter()
     counter = 0
-    combined_embedding_and_text = []
     gpu_utilization_snapshot = []
-    for embedding_and_text, n_chars, gpu_utilization in model.embed.map(
+    for _, n_chars, gpu_utilization in model.embed.map(
         materialized_batchs, order_outputs=False
     ):
         counter += n_chars
-        combined_embedding_and_text.extend(embedding_and_text)
         gpu_utilization_snapshot.append(gpu_utilization)
+
     end = time.perf_counter()
-
-    if upload_dataset_to_hf:
-        start = time.perf_counter()
-        texts = [i[0] for i in combined_embedding_and_text]
-        embeddings = [i[1] for i in combined_embedding_and_text]
-        text_array = pa.array(texts)
-        embedding_array = pa.array(embeddings)
-        table = pa.Table.from_arrays(
-            [text_array, embedding_array], names=["text", "embedding"]
-        )
-
-        pq.write_table(table, "wiki-embeddings.parquet")
-        dataset = load_dataset("parquet", data_files="wiki-embeddings.parquet")
-        dataset.push_to_hub(
-            "ivanleomk/wikipedia-embeddings-trial",
-            token=os.environ["HUGGINGFACE_TOKEN"],
-        )
-        end = time.perf_counter()
-        print(f"Uploaded dataset in {end-start:.2f} seconds")
 
     duration = end - start
     characters_per_second = int(counter / duration)
