@@ -1,15 +1,26 @@
 from itertools import product
 import json
+import secrets
+import string
 import subprocess
 from pathlib import Path
+from modal import Image, Secret, Stub, Volume, gpu, method
 
-from modal import Image, Stub, Volume, gpu, method
 
-N_GPU = 50
+def generate_id(length: int = 8) -> str:
+    """Generate a random base-36 string of `length` digits."""
+    # There are ~2.8T base-36 8-digit strings. If we generate 210k ids,
+    # we'll have a ~1% chance of collision.
+    alphabet = string.ascii_lowercase + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+N_GPU = 1
 N_INPUTS = 20
 GPU_CONFIG = gpu.A10G()
 MODEL_ID = "BAAI/bge-base-en-v1.5"
-BATCH_SIZE = 256 * 2
+BATCH_SIZE = 32
+CONFIGURE_LOGGING = True
 DOCKER_IMAGE = (
     "ghcr.io/huggingface/text-embeddings-inference:86-0.4.0"  # Ampere 86 for A10s.
     # "ghcr.io/huggingface/text-embeddings-inference:0.4.0" # Ampere 80 for A100s.
@@ -20,7 +31,7 @@ volume = Volume.persisted("embedding-wikipedia")
 cache_dir = "/data"
 data_dir = f"{cache_dir}/{dataset_name}"
 DATA_PATH = Path(data_dir)
-
+run_id = f"experiment-{generate_id()}"
 LAUNCH_FLAGS = [
     "--model-id",
     MODEL_ID,
@@ -67,7 +78,7 @@ tei_image = (
     )
     .dockerfile_commands("ENTRYPOINT []")
     .run_function(download_model, gpu=GPU_CONFIG)
-    .pip_install("httpx")
+    .pip_install("httpx", "pynvml", "wandb")
 )
 
 
@@ -100,17 +111,58 @@ def generate_batches(xs, batch_size=50):
     concurrency_limit=N_GPU,
     # Allow each container to process up to 10 batches at once.
     allow_concurrent_inputs=N_INPUTS,
+    secret=Secret.from_name("wandb"),
 )
 class TextEmbeddingsInference:
     def __enter__(self):
         # If the process is running for a long time, the client does not seem to close the connections, results in a pool timeout
         from httpx import AsyncClient
+        from pynvml import nvmlInit, nvmlDeviceGetHandleByIndex
+        from wandb import init
+        from wandb.sdk.wandb_run import Run
+        from threading import Thread
+        import os
+
+        nvmlInit()
 
         self.process = spawn_server()
         self.client = AsyncClient(base_url="http://127.0.0.1:8000")
+        self.gpu = nvmlDeviceGetHandleByIndex(0)
+        self.track = True
+        # Check that user has configured
+        if CONFIGURE_LOGGING:
+            if not os.environ["WANDB_API_KEY"]:
+                print(
+                    "No Wandb API Key Configured -> No logging will be enabled for this run."
+                )
+                return
+            # We now generate a unique UUID for each run so that each run is not confused with one another
+            self.run: Run = init(project="wikipedia-embedding", group=run_id)
+            self.gpu_thread = Thread(target=self.track_gpu_usage)
+            self.gpu_thread.start()
+
+    def track_gpu_usage(self):
+        from pynvml import nvmlDeviceGetUtilizationRates
+        import time
+
+        while self.track:
+            utilization = nvmlDeviceGetUtilizationRates(self.gpu)
+            self.run.log({"gpu_utilization": utilization.gpu})
+            print(f"Utilization: {utilization.gpu}%")
+            time.sleep(1)
 
     def __exit__(self, _exc_type, _exc_value, _traceback):
-        self.process.terminate()
+        from pynvml import nvmlShutdown
+        import os
+
+        self.track = False
+
+        if CONFIGURE_LOGGING and os.environ["WANDB_API_KEY"]:
+            self.gpu_thread.join()
+            self.process.terminate()
+            self.run.finish()
+
+        nvmlShutdown()
 
     @method()
     async def embed(self, texts: list[str]):
@@ -158,7 +210,7 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
     )  # 32 is the max batch size of the model
 
     start = time.perf_counter()
-    materialized_batchs = list(batches)
+    materialized_batchs = list(batches)[:3000]
     print(
         f"Materialized {len(materialized_batchs)} batches in {time.perf_counter()-start:.2f} seconds"
     )
@@ -191,7 +243,8 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
 
 @stub.local_entrypoint()
 def main():
-    for scale, batch_size in product([0.001], [256, 512]):
+    print(f"Starting with Run ID ---> {run_id}")
+    for scale, batch_size in product([0.001], [20]):
         with open(f"benchmarks.json", "a") as f:
             benchmark = embed_dataset.remote(down_scale=scale, batch_size=batch_size)
             print(json.dumps(benchmark, indent=2))
