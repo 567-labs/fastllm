@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader
 from dataset import EmbeddingDataset, load_and_split_data
 from model import SimilarityModel
 import pytorch_lightning as pl
+from inference import inference
 
 model_id = "BAAI/bge-small-en-v1.5"
 
@@ -65,7 +66,7 @@ class StratifiedSampler(Sampler):
         return len(self.class_vector)
 
 
-def objective(trial):
+def objective(trial, checkpoint_dirpath):
     # Hyperparameters to be optimized
     embedding_size = 384
     dropout_fraction = 0.5
@@ -121,8 +122,9 @@ def objective(trial):
     # Define a checkpoint callback
     f1_check = ModelCheckpoint(
         monitor="val_f1",
-        dirpath="checkpoints_stratified",
-        filename=name + "-{epoch:02d}-{val_loss:.2f}-{val_recall:.2f}-{val_f1:.2f}",
+        dirpath=checkpoint_dirpath,
+        filename=f"checkpoint-{trial.number}",
+        # filename=name + "-{epoch:02d}-{val_loss:.2f}-{val_recall:.2f}-{val_f1:.2f}",
         save_top_k=1,
         mode="max",
     )
@@ -143,7 +145,7 @@ def objective(trial):
 
     # Initialize trainer with TensorBoard logger
     trainer = pl.Trainer(
-        max_epochs=400,
+        max_epochs=100,
         logger=logger,
         callbacks=[f1_check],
     )
@@ -159,10 +161,10 @@ def objective(trial):
     return test_loss
 
 
-def run_optuna():
+def run_optuna(checkpoint_dirpath):
     # Run Optuna optimization
     study = optuna.create_study(direction="maximize")
-    study.optimize(objective, n_trials=2)
+    study.optimize(lambda trial: objective(trial, checkpoint_dirpath), n_trials=1)
 
     # Print the result
     print(f"Number of finished trials: {len(study.trials)}")
@@ -170,6 +172,10 @@ def run_optuna():
     trial = study.best_trial
     print(f"  Value: {trial.value}")
     print(f"  Params: {trial.params}")
+    return trial._trial_id
 
 if __name__ == "__main__":
-    run_optuna()
+    checkpoint_dirpath = "checkpoints_stratified"
+    res = run_optuna(checkpoint_dirpath)
+    res = inference(["hi world"], ["hello earth"], checkpoint_dirpath+"/checkpoint-0.ckpt")
+    print('inference', res)
