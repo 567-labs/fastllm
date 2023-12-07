@@ -6,7 +6,15 @@ from transformers import AutoTokenizer, AutoModel
 
 
 def load_df():
-    df = pd.read_csv("text_dataset.csv")
+    # csv dataset
+    # df = pd.read_csv("text_dataset.csv")
+
+    # test dataset
+    data = {
+        "query": ["hello world", "hello world", "hello world"],
+        "fact": ["hi world", "hi world", "hi world"]
+    }
+    df = pd.DataFrame(data)
 
     print(f"Loading {len(df)} rows of data")
 

@@ -159,13 +159,17 @@ def objective(trial):
     return test_loss
 
 
-# Run Optuna optimization
-study = optuna.create_study(direction="maximize")
-study.optimize(objective, n_trials=3)
+def run_optuna():
+    # Run Optuna optimization
+    study = optuna.create_study(direction="maximize")
+    study.optimize(objective, n_trials=2)
 
-# Print the result
-print(f"Number of finished trials: {len(study.trials)}")
-print("Best trial:")
-trial = study.best_trial
-print(f"  Value: {trial.value}")
-print(f"  Params: {trial.params}")
+    # Print the result
+    print(f"Number of finished trials: {len(study.trials)}")
+    print("Best trial:")
+    trial = study.best_trial
+    print(f"  Value: {trial.value}")
+    print(f"  Params: {trial.params}")
+
+if __name__ == "__main__":
+    run_optuna()
