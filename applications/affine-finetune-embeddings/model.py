@@ -3,6 +3,21 @@ import torch.nn.functional as F
 import pytorch_lightning as pl
 import torchmetrics
 
+# class Embedding: # use this for huggingface compatibiltiy?
+#      self.encoder = ...
+#      self.adapter = ...
+#     def forward(self, x)
+#         x = self.encoder(x)
+#         x = self.adapter(x)
+#         return x (edited)
+# 11:14
+# class BiEncoder(SentenceTransformer): # this one is for training
+#     self.encoder = Embedding()
+#    def forward(self, x, y):
+#         x = self.encoder(x)
+#         y = self.encoder(y)
+#         return cosine(x, y) (edited)
+
 
 # Similarity Model
 class SimilarityModel(pl.LightningModule):
@@ -27,6 +42,8 @@ class SimilarityModel(pl.LightningModule):
         self.save_hyperparameters()
 
     def forward(self, embedding_1, embedding_2):
+        # modify to call encode
+        # maybe make this encode
         e1 = F.dropout(embedding_1, p=self.dropout_fraction)
         e2 = F.dropout(embedding_2, p=self.dropout_fraction)
         matrix = self.matrix if not self.use_relu else F.relu(self.matrix)
@@ -34,6 +51,15 @@ class SimilarityModel(pl.LightningModule):
         modified_embedding_2 = e2 @ matrix
         similarity = F.cosine_similarity(modified_embedding_1, modified_embedding_2)
         return similarity.unsqueeze(-1)  # Adding a dimension to match target shape
+
+    def encode(self, embedding):
+        # user can call this from modal endpoint, model after endpoint
+        # look into how huggingface inference works, make it compatible
+        # returns an actual embedding
+        e = F.dropout(embedding, p=self.dropout_fraction)
+        matrix = self.matrix if not self.use_relu else F.relu(self.matrix)
+        modified_embedding = e @ matrix
+        return modified_embedding
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.lr)

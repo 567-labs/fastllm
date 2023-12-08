@@ -36,6 +36,8 @@ def inference(t1: List[str], t2: List[str], checkpoint_path=str):
     model.eval()
     with torch.no_grad():
         res = model(embedding_1, embedding_2)
+    finetune_embedding_1 = model.encode(embedding_1)
+    print('finetune_embedding_1', finetune_embedding_1)
 
     return res
 

@@ -95,7 +95,6 @@ def objective(trial, checkpoint_dirpath):
         test_df2,
     ) = load_and_split_data()
 
-    # TODO: make EmbeddingDataset convert text into embedding
     # Create Datasets and DataLoaders for training, validation, and test
     train_dataset = EmbeddingDataset(train_df1, train_df2, model_id)
     val_dataset = EmbeddingDataset(val_df1, val_df2, model_id)
@@ -149,6 +148,8 @@ def objective(trial, checkpoint_dirpath):
         logger=logger,
         callbacks=[f1_check],
     )
+
+    # TODO: find somewhere to make it a modal stub around here
 
     # Train the model and log validation evaluations at every epoch
     trainer.fit(model, train_loader, val_loader)
