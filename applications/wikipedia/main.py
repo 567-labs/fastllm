@@ -7,10 +7,10 @@ from pathlib import Path
 from modal import Image, Secret, Stub, Volume, gpu, method
 
 
-WANDB_GROUP_NAME = "RUN_2"
+WANDB_GROUP_NAME = "RUN_3"
 WANDB_PROJECT_NAME = "Wikipedia-embeddings"
 
-N_GPU = 1
+N_GPU = 2
 N_INPUTS = 20
 GPU_CONFIG = gpu.A10G()
 MODEL_ID = "BAAI/bge-base-en-v1.5"
@@ -151,12 +151,19 @@ class TextEmbeddingsInference:
     def __exit__(self, _exc_type, _exc_value, _traceback):
         from pynvml import nvmlShutdown
         import os
+        import time
 
         self.track = False
 
         if CONFIGURE_LOGGING and os.environ["WANDB_API_KEY"]:
             self.gpu_thread.join()
             self.process.terminate()
+            self.run.finish()
+            print("..Terminating wandb")
+            time.sleep(1)
+            while not self.run._is_finished:
+                print("....awaiting wandb copmpletion")
+                time.sleep(1)
 
         nvmlShutdown()
 
@@ -180,9 +187,14 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
     import time
     import datetime
 
+    wandb_run = None
+
     if CONFIGURE_LOGGING and os.environ["WANDB_API_KEY"]:
-        wandb.init(
-            project=WANDB_PROJECT_NAME, group=WANDB_GROUP_NAME, id="main", resume=True
+        wandb_run = wandb.init(
+            project=WANDB_PROJECT_NAME,
+            group=WANDB_GROUP_NAME,
+            id=f"main_{batch_size}_{down_scale}",
+            resume=True,
         )
 
     start = time.perf_counter()
@@ -233,17 +245,24 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
     )
 
     # Now we log the results of the run
-    if CONFIGURE_LOGGING and os.environ["WANDB_API_KEY"]:
+    if CONFIGURE_LOGGING and os.environ["WANDB_API_KEY"] and wandb_run:
         wandb.log(
             {
+                "downscale": down_scale,
                 "batch_size": batch_size,
                 "n_gpu": N_GPU,
                 "n_inputs": N_INPUTS,
                 "duration": duration,
-                "extrapolated_duration": extrapolated_duration,
                 "characters_per_second": characters_per_second,
+                "extrapolated_duration": extrapolated_duration,
             }
         )
+        wandb.finish()
+        time.sleep(2)
+        # We wait for run to finish and the sentry to be disabled
+        while not wandb_run._is_finished:
+            print("....awaiting wandb completion")
+            time.sleep(1)
 
     return {
         "downscale": down_scale,
@@ -263,7 +282,7 @@ def main():
     print(f"Starting with GROUP ID ---> {WANDB_GROUP_NAME}")
     for scale, batch_size in product(
         [0.001],
-        [50, 100, 250],
+        [100],
     ):
         with open(f"benchmarks.json", "a") as f:
             benchmark = embed_dataset.remote(down_scale=scale, batch_size=batch_size)
