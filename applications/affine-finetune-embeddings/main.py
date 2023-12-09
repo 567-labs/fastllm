@@ -165,7 +165,7 @@ def objective(trial, checkpoint_dirpath):
 def run_optuna(checkpoint_dirpath):
     # Run Optuna optimization
     study = optuna.create_study(direction="maximize")
-    study.optimize(lambda trial: objective(trial, checkpoint_dirpath), n_trials=1)
+    study.optimize(lambda trial: objective(trial, checkpoint_dirpath), n_trials=2)
 
     # Print the result
     print(f"Number of finished trials: {len(study.trials)}")
@@ -177,6 +177,6 @@ def run_optuna(checkpoint_dirpath):
 
 if __name__ == "__main__":
     checkpoint_dirpath = "checkpoints_stratified"
-    res = run_optuna(checkpoint_dirpath)
-    res = inference(["hi world"], ["hello earth"], checkpoint_dirpath+"/checkpoint-0.ckpt")
-    print('inference', res)
+    best_trial_id = run_optuna(checkpoint_dirpath)
+    print("--------------------------")
+    print("best trial id:", best_trial_id)
