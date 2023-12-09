@@ -1,13 +1,11 @@
-from itertools import product
 import json
-import secrets
-import string
 import subprocess
+from itertools import product
 from pathlib import Path
+
 from modal import Image, Secret, Stub, Volume, gpu, method
 
-
-WANDB_GROUP_NAME = "RUN_3"
+WANDB_GROUP_NAME = "RUN_6"
 WANDB_PROJECT_NAME = "Wikipedia-embeddings"
 
 N_GPU = 2
@@ -110,13 +108,14 @@ def generate_batches(xs, batch_size=50):
 class TextEmbeddingsInference:
     def __enter__(self):
         # If the process is running for a long time, the client does not seem to close the connections, results in a pool timeout
-        from httpx import AsyncClient
-        from pynvml import nvmlInit, nvmlDeviceGetHandleByIndex
-        from wandb import init
-        from wandb.sdk.wandb_run import Run
-        from threading import Thread
         import os
         import uuid
+        from threading import Thread
+
+        from httpx import AsyncClient
+        from pynvml import nvmlDeviceGetHandleByIndex, nvmlInit
+        from wandb import init
+        from wandb.sdk.wandb_run import Run
 
         nvmlInit()
 
@@ -139,19 +138,21 @@ class TextEmbeddingsInference:
             self.gpu_thread.start()
 
     def track_gpu_usage(self):
-        from pynvml import nvmlDeviceGetUtilizationRates
         import time
+
+        from pynvml import nvmlDeviceGetUtilizationRates
 
         while self.track:
             utilization = nvmlDeviceGetUtilizationRates(self.gpu)
             self.run.log({f"gpu_utilization_{self.key}": utilization.gpu})
             print(f"Utilization: {utilization.gpu}%")
             time.sleep(1)
-
-    def __exit__(self, _exc_type, _exc_value, _traceback):
-        from pynvml import nvmlShutdown
+    
+    def clean_up(self):
         import os
         import time
+
+        from pynvml import nvmlShutdown
 
         self.track = False
 
@@ -160,18 +161,139 @@ class TextEmbeddingsInference:
             self.process.terminate()
             self.run.finish()
             print("..Terminating wandb")
-            time.sleep(1)
+            time.sleep(2)
             while not self.run._is_finished:
                 print("....awaiting wandb copmpletion")
-                time.sleep(1)
+                time.sleep(2)
 
         nvmlShutdown()
+        time.sleep(2)
+
+    def __aexit__(self, _exc_type, _exc_value, _traceback):
+        self.clean_up()
+
+    def __exit__(self, _exc_type, _exc_value, _traceback):
+        self.clean_up()
 
     @method()
     async def embed(self, texts: list[str]):
         n_chars = sum(map(len, texts))
         _ = await self.client.post("/embed", json={"inputs": texts})
         return n_chars
+
+
+@stub.cls(
+    image=Image.debian_slim().pip_install("datasets", "wandb"),
+    volumes={cache_dir: volume},
+    timeout=5000,
+    secret=Secret.from_name("wandb"),
+)
+class DatasetLoader:
+    def __init__(self, down_scale: float = 0.005) -> None:
+        self.down_scale = down_scale
+
+    def __enter__(self):
+        import os
+        from typing import Union
+
+        import wandb
+        from datasets import load_from_disk
+        from wandb.sdk.wandb_run import Run
+
+        self.logging_enabled = CONFIGURE_LOGGING and os.environ["WANDB_API_KEY"]
+        self.wandb_run: Union[Run, None] = (
+            wandb.init(
+                project=WANDB_PROJECT_NAME,
+                group=WANDB_GROUP_NAME,
+                id="main_run",
+                resume=True,
+            )
+            if self.logging_enabled
+            else None
+        )
+        print("Initializing Dataset")
+        self.dataset = load_from_disk(f"{cache_dir}/wikipedia")
+
+        self.ttl_size = len(self.dataset["train"])
+        sample_size = int(self.ttl_size * self.down_scale)
+        self.subset = self.dataset["train"].select(range(sample_size))
+        self.text_chunks = generate_chunks_from_dataset(self.subset, chunk_size=400)
+        print(">>> Dataset Initialised")
+
+    @method()
+    def embed(self, batch_size: int = 32):
+        import datetime
+        import os
+        import time
+
+        import wandb
+
+        batches = generate_batches(self.text_chunks, batch_size=batch_size)
+        start = time.perf_counter()
+        materialized_batchs = list(batches)[:200]
+        print(
+            f"Materialized {len(materialized_batchs)} batches in {time.perf_counter()-start:.2f} seconds"
+        )
+
+        start = time.perf_counter()
+        model = TextEmbeddingsInference()
+        counter = 0
+        for n_chars in model.embed.map(materialized_batchs, order_outputs=False):
+            counter += n_chars
+
+        end = time.perf_counter()
+        duration = end - start
+        characters_per_second = int(counter / duration)
+        extrapolated_duration = int(duration / self.down_scale)
+        extrapolated_duration_fmt = str(
+            datetime.timedelta(seconds=extrapolated_duration)
+        )
+        dataset_chars = 19560538957
+        extrapolated_duration_tps_fmt = str(
+            datetime.timedelta(seconds=dataset_chars / characters_per_second)
+        )
+        if CONFIGURE_LOGGING and os.environ["WANDB_API_KEY"] and self.wandb_run:
+            wandb.log(
+                {
+                    "downscale": self.down_scale,
+                    "batch_size": batch_size,
+                    "n_gpu": N_GPU,
+                    "n_inputs": N_INPUTS,
+                    "duration": duration,
+                    "characters_per_second": characters_per_second,
+                    "extrapolated_duration": extrapolated_duration,
+                }
+            )
+
+        return {
+            "downscale": self.down_scale,
+            "batch_size": batch_size,
+            "n_gpu": N_GPU,
+            "n_inputs": N_INPUTS,
+            "duration": duration,
+            "characters_per_second": characters_per_second,
+            "extrapolated_duration": extrapolated_duration,
+            "extrapolated_duration_fmt": extrapolated_duration_fmt,
+            "extrapolated_duration_tps_fmt": extrapolated_duration_tps_fmt,
+        }
+
+    def clean_up(self):
+        import time
+
+        if self.logging_enabled:
+            self.wandb_run.finish()
+            time.sleep(2)
+            while not self.wandb_run._is_finished:
+                print("....awaiting wandb copmpletion")
+                time.sleep(2)
+        
+        time.sleep(2)
+
+    def __exit__(self, exc_type, exc_value, traceback):
+       self.clean_up()
+    
+    def __aexit__(self, exc_type, exc_value, traceback):
+       self.clean_up()
 
 
 @stub.function(
@@ -181,11 +303,12 @@ class TextEmbeddingsInference:
     secret=Secret.from_name("wandb"),
 )
 def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
-    from datasets import load_from_disk
-    import wandb
+    import datetime
     import os
     import time
-    import datetime
+
+    import wandb
+    from datasets import load_from_disk
 
     wandb_run = None
 
@@ -225,7 +348,7 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
     )  # 32 is the max batch size of the model
 
     start = time.perf_counter()
-    materialized_batchs = list(batches)[:3000]
+    materialized_batchs = list(batches)
     print(
         f"Materialized {len(materialized_batchs)} batches in {time.perf_counter()-start:.2f} seconds"
     )
@@ -280,11 +403,18 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
 @stub.local_entrypoint()
 def main():
     print(f"Starting with GROUP ID ---> {WANDB_GROUP_NAME}")
+    model = DatasetLoader(
+        down_scale=0.001
+    )
+    print("Initialized Embedding orchestrator")
     for scale, batch_size in product(
         [0.001],
-        [100],
+        [30,60,90],
     ):
         with open(f"benchmarks.json", "a") as f:
-            benchmark = embed_dataset.remote(down_scale=scale, batch_size=batch_size)
+            # benchmark = embed_dataset.remote(down_scale=scale, batch_size=batch_size)
+            benchmark = model.embed.remote(
+                batch_size
+            )
             print(json.dumps(benchmark, indent=2))
             f.write(json.dumps(benchmark, indent=2) + "\n")
