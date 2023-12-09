@@ -7,19 +7,14 @@ from pathlib import Path
 from modal import Image, Secret, Stub, Volume, gpu, method
 
 
-def generate_id(length: int = 8) -> str:
-    """Generate a random base-36 string of `length` digits."""
-    # There are ~2.8T base-36 8-digit strings. If we generate 210k ids,
-    # we'll have a ~1% chance of collision.
-    alphabet = string.ascii_lowercase + string.digits
-    return "".join(secrets.choice(alphabet) for _ in range(length))
-
+WANDB_GROUP_NAME = "RUN_2"
+WANDB_PROJECT_NAME = "Wikipedia-embeddings"
 
 N_GPU = 1
 N_INPUTS = 20
 GPU_CONFIG = gpu.A10G()
 MODEL_ID = "BAAI/bge-base-en-v1.5"
-BATCH_SIZE = 32
+BATCH_SIZE = 256 * 2
 CONFIGURE_LOGGING = True
 DOCKER_IMAGE = (
     "ghcr.io/huggingface/text-embeddings-inference:86-0.4.0"  # Ampere 86 for A10s.
@@ -31,7 +26,6 @@ volume = Volume.persisted("embedding-wikipedia")
 cache_dir = "/data"
 data_dir = f"{cache_dir}/{dataset_name}"
 DATA_PATH = Path(data_dir)
-run_id = f"experiment-{generate_id()}"
 LAUNCH_FLAGS = [
     "--model-id",
     MODEL_ID,
@@ -122,6 +116,7 @@ class TextEmbeddingsInference:
         from wandb.sdk.wandb_run import Run
         from threading import Thread
         import os
+        import uuid
 
         nvmlInit()
 
@@ -137,8 +132,10 @@ class TextEmbeddingsInference:
                 )
                 return
             # We now generate a unique UUID for each run so that each run is not confused with one another
-            self.run: Run = init(project="wikipedia-embedding", group=run_id)
+            self.run: Run = init(project=WANDB_PROJECT_NAME, group=WANDB_GROUP_NAME)
             self.gpu_thread = Thread(target=self.track_gpu_usage)
+            self.key = f"gpu_utilization_{uuid.uuid4()}"
+            print(f"Starting logging with {self.key}")
             self.gpu_thread.start()
 
     def track_gpu_usage(self):
@@ -147,7 +144,7 @@ class TextEmbeddingsInference:
 
         while self.track:
             utilization = nvmlDeviceGetUtilizationRates(self.gpu)
-            self.run.log({"gpu_utilization": utilization.gpu})
+            self.run.log({f"gpu_utilization_{self.key}": utilization.gpu})
             print(f"Utilization: {utilization.gpu}%")
             time.sleep(1)
 
@@ -160,7 +157,6 @@ class TextEmbeddingsInference:
         if CONFIGURE_LOGGING and os.environ["WANDB_API_KEY"]:
             self.gpu_thread.join()
             self.process.terminate()
-            self.run.finish()
 
         nvmlShutdown()
 
@@ -172,15 +168,22 @@ class TextEmbeddingsInference:
 
 
 @stub.function(
-    image=Image.debian_slim().pip_install("datasets"),
+    image=Image.debian_slim().pip_install("datasets", "wandb"),
     volumes={cache_dir: volume},
     timeout=5000,
+    secret=Secret.from_name("wandb"),
 )
 def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
     from datasets import load_from_disk
-
+    import wandb
+    import os
     import time
     import datetime
+
+    if CONFIGURE_LOGGING and os.environ["WANDB_API_KEY"]:
+        wandb.init(
+            project=WANDB_PROJECT_NAME, group=WANDB_GROUP_NAME, id="main", resume=True
+        )
 
     start = time.perf_counter()
     # Load the dataset as a Hugging Face dataset
@@ -228,6 +231,20 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
     extrapolated_duration_tps_fmt = str(
         datetime.timedelta(seconds=dataset_chars / characters_per_second)
     )
+
+    # Now we log the results of the run
+    if CONFIGURE_LOGGING and os.environ["WANDB_API_KEY"]:
+        wandb.log(
+            {
+                "batch_size": batch_size,
+                "n_gpu": N_GPU,
+                "n_inputs": N_INPUTS,
+                "duration": duration,
+                "extrapolated_duration": extrapolated_duration,
+                "characters_per_second": characters_per_second,
+            }
+        )
+
     return {
         "downscale": down_scale,
         "batch_size": batch_size,
@@ -243,8 +260,11 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
 
 @stub.local_entrypoint()
 def main():
-    print(f"Starting with Run ID ---> {run_id}")
-    for scale, batch_size in product([0.001], [20]):
+    print(f"Starting with GROUP ID ---> {WANDB_GROUP_NAME}")
+    for scale, batch_size in product(
+        [0.001],
+        [50, 100, 250],
+    ):
         with open(f"benchmarks.json", "a") as f:
             benchmark = embed_dataset.remote(down_scale=scale, batch_size=batch_size)
             print(json.dumps(benchmark, indent=2))
