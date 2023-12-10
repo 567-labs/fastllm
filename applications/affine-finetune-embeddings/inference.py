@@ -6,7 +6,6 @@ from transformers import AutoTokenizer, AutoModel
 from typing import List
 import sys
 
-
 def inference(
     t1: List[str], checkpoint_path: str, model_id: str = "BAAI/bge-small-en-v1.5"
 ) -> torch.Tensor:
@@ -31,7 +30,7 @@ def inference(
         embedding = model_output[0][:, 0].to(device)
 
         model.eval()
-        finetune_embedding = model.encode(embedding)
+        finetune_embedding = model(embedding)
 
     return finetune_embedding
 
@@ -46,4 +45,4 @@ if __name__ == "__main__":
         ["hi world"], f"{checkpoint_dirpath}/checkpoint-{checkpoint_num}.ckpt"
     )
     print(res)
-    print("embedding shape", res.shape)
+    print("embedding shape")

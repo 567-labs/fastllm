@@ -3,10 +3,9 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
 import torch
 from torch.utils.data import DataLoader
-from dataset import EmbeddingDataset, load_and_split_data
+from dataset import EmbeddingDataset, load_and_split_data, load_df_sentence_compression
 from model import SimilarityModel
 import pytorch_lightning as pl
-from inference import inference
 
 model_id = "BAAI/bge-small-en-v1.5"
 
@@ -93,7 +92,7 @@ def objective(trial, checkpoint_dirpath):
         train_df2,
         val_df2,
         test_df2,
-    ) = load_and_split_data()
+    ) = load_and_split_data(*load_df_sentence_compression())
 
     # Create Datasets and DataLoaders for training, validation, and test
     train_dataset = EmbeddingDataset(train_df1, train_df2, model_id)
@@ -121,6 +120,7 @@ def objective(trial, checkpoint_dirpath):
     # Define a checkpoint callback
     f1_check = ModelCheckpoint(
         monitor="val_f1",
+        # TODO: rename checkpoint
         dirpath=checkpoint_dirpath,
         filename=f"checkpoint-{trial.number}",
         # filename=name + "-{epoch:02d}-{val_loss:.2f}-{val_recall:.2f}-{val_f1:.2f}",
@@ -144,12 +144,12 @@ def objective(trial, checkpoint_dirpath):
 
     # Initialize trainer with TensorBoard logger
     trainer = pl.Trainer(
-        max_epochs=100,
+        max_epochs=10, #TODO: up this for actual training
         logger=logger,
         callbacks=[f1_check],
     )
 
-    # TODO: find somewhere to make it a modal stub around here
+    # TODO: find somewhere to make it a modal stub around here to do parallel optuna stuff
 
     # Train the model and log validation evaluations at every epoch
     trainer.fit(model, train_loader, val_loader)
@@ -165,7 +165,7 @@ def objective(trial, checkpoint_dirpath):
 def run_optuna(checkpoint_dirpath):
     # Run Optuna optimization
     study = optuna.create_study(direction="maximize")
-    study.optimize(lambda trial: objective(trial, checkpoint_dirpath), n_trials=2)
+    study.optimize(lambda trial: objective(trial, checkpoint_dirpath), n_trials=1)
 
     # Print the result
     print(f"Number of finished trials: {len(study.trials)}")
@@ -173,7 +173,9 @@ def run_optuna(checkpoint_dirpath):
     trial = study.best_trial
     print(f"  Value: {trial.value}")
     print(f"  Params: {trial.params}")
+
     return trial._trial_id
+
 
 if __name__ == "__main__":
     checkpoint_dirpath = "checkpoints_stratified"
