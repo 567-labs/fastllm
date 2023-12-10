@@ -1,11 +1,5 @@
 # Concurrent Reads faster than your local machine
 
-- How to set up a volume
-- A brief mental model of working with volumes
-- Streaming in data from a volume to run a batch job
-- Working with concurrent data to do embeddings
-- Maybe ,,, puling in model files and caching them in volumes too
-
 In this short Article, we'll walk through the new Volume feature that Modal just released. We cover a few things - from a conceptual mental model to help you get up and running to some sample implementations to show you how they work in the wild.
 
 In case you're unfamiliar with Modal, they're a Infrastructure as Code (IAC) company that aims to simplify the complex process of deploying your code. By only paying for what you need, and abstracting away all the complexity of deploying and serving, Modal provides a simplified process to help you focus on what's important - the features that you want to build.
