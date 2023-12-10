@@ -1,10 +1,15 @@
+from itertools import product
+import json
 import subprocess
 from pathlib import Path
+
 from modal import Image, Stub, Volume, gpu, method
 
+N_GPU = 50
+N_INPUTS = 20
 GPU_CONFIG = gpu.A10G()
 MODEL_ID = "BAAI/bge-base-en-v1.5"
-BATCH_SIZE = 32
+BATCH_SIZE = 256 * 2
 DOCKER_IMAGE = (
     "ghcr.io/huggingface/text-embeddings-inference:86-0.4.0"  # Ampere 86 for A10s.
     # "ghcr.io/huggingface/text-embeddings-inference:0.4.0" # Ampere 80 for A100s.
@@ -21,6 +26,10 @@ LAUNCH_FLAGS = [
     MODEL_ID,
     "--port",
     "8000",
+    "--max-client-batch-size",
+    str(BATCH_SIZE),
+    "--max-batch-tokens",
+    str(16384 * 3),
 ]
 
 
@@ -66,16 +75,35 @@ with tei_image.run_inside():
     import numpy as np
 
 
+def generate_chunks_from_dataset(xs, chunk_size=400):
+    for data in xs:
+        text = data["text"]
+        for chunk_start in range(0, len(text), chunk_size):
+            yield text[chunk_start : chunk_start + chunk_size]
+
+
+def generate_batches(xs, batch_size=50):
+    batch = []
+    for x in xs:
+        batch.append(x)
+        if len(batch) == batch_size:
+            yield batch
+            batch = []
+    if batch:
+        yield batch
+
+
 @stub.cls(
     gpu=GPU_CONFIG,
     image=tei_image,
-    # Use up to 20 GPU containers at once.
-    concurrency_limit=10,
+    # Use up to 10 GPU containers at once.
+    concurrency_limit=N_GPU,
     # Allow each container to process up to 10 batches at once.
-    allow_concurrent_inputs=10,
+    allow_concurrent_inputs=N_INPUTS,
 )
 class TextEmbeddingsInference:
     def __enter__(self):
+        # If the process is running for a long time, the client does not seem to close the connections, results in a pool timeout
         from httpx import AsyncClient
 
         self.process = spawn_server()
@@ -85,16 +113,10 @@ class TextEmbeddingsInference:
         self.process.terminate()
 
     @method()
-    async def embed(self, inputs: list[str]):
-        print(f"Recieved {len(inputs)} inputs")
-        resp = self.client.post("/embed", json={"inputs": inputs})
-        resp = await resp
-        resp.raise_for_status()
-        outputs = resp.json()
-
-        # Returning a list is slower because of additional Modal-specific overhead,
-        # to be fixed shortly.
-        return np.array(outputs)
+    async def embed(self, texts: list[str]):
+        n_chars = sum(map(len, texts))
+        _ = await self.client.post("/embed", json={"inputs": texts})
+        return n_chars
 
 
 @stub.function(
@@ -102,42 +124,75 @@ class TextEmbeddingsInference:
     volumes={cache_dir: volume},
     timeout=5000,
 )
-def embed_dataset():
+def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
     from datasets import load_from_disk
 
-    print("Starting Model Embedding")
     import time
+    import datetime
 
-    start = time.time()
+    start = time.perf_counter()
+    # Load the dataset as a Hugging Face dataset
+    print("Loading dataset from disk... ~ 40 seconds")
     dataset = load_from_disk(f"{cache_dir}/wikipedia")
-    end = time.time()
-    print(f"Loaded dataset in {end-start}s")  # ~40s
-    subset = dataset["train"].select(range(5))
+    print(f"Dataset loaded in {time.perf_counter()-start:.2f} seconds")
 
+    # Extract the total size of the dataset
+    ttl_size = len(dataset["train"])
+
+    # Counting all characters in the dataset
+    dataset_chars = 19560538957  # sum(map(len, dataset["train"]["text"]))
+    print(f"Total dataset characters: {dataset_chars}")
+
+    sample_size = int(ttl_size * down_scale)
+    print(f"Calculated dataset size of {ttl_size} and sample size of {sample_size}")
+
+    # Iterate over the first 5% of the dataset's rows
+    subset = dataset["train"].select(range(sample_size))
     model = TextEmbeddingsInference()
 
-    # Text Embedding can only take in 512 tokens at a given time ( Input validation error: `inputs` must have less than 512 tokens. Given: 598 )
-    # Therefore -> Move towards migrating the
-    count = 0
+    print(f"Working with {sample_size} rows")
 
-    def generate_batches():
-        nonlocal count
-        for item in subset:
-            sentences = item["text"].split(". ")
-            for sentence in sentences:
-                count += 1
-                if len(sentence) > 400:
-                    continue
-                yield [sentence]
+    text_chunks = generate_chunks_from_dataset(subset, chunk_size=400)
+    batches = generate_batches(
+        text_chunks, batch_size=batch_size
+    )  # 32 is the max batch size of the model
 
-    start = time.time()
-    for output_batch in model.embed.map(generate_batches(), order_outputs=False):
-        # Do something with the outputs.
-        print(f"Generated {len(output_batch)} embeddings")
-    end = time.time()
-    print(f"Took {end-start}s to embed {count} sentences")
+    start = time.perf_counter()
+    materialized_batchs = list(batches)
+    print(
+        f"Materialized {len(materialized_batchs)} batches in {time.perf_counter()-start:.2f} seconds"
+    )
+
+    start = time.perf_counter()
+    counter = 0
+    for n_chars in model.embed.map(materialized_batchs, order_outputs=False):
+        counter += n_chars
+    end = time.perf_counter()
+
+    duration = end - start
+    characters_per_second = int(counter / duration)
+    extrapolated_duration = int(duration / down_scale)
+    extrapolated_duration_fmt = str(datetime.timedelta(seconds=extrapolated_duration))
+    extrapolated_duration_tps_fmt = str(
+        datetime.timedelta(seconds=dataset_chars / characters_per_second)
+    )
+    return {
+        "downscale": down_scale,
+        "batch_size": batch_size,
+        "n_gpu": N_GPU,
+        "n_inputs": N_INPUTS,
+        "duration": duration,
+        "characters_per_second": characters_per_second,
+        "extrapolated_duration": extrapolated_duration,
+        "extrapolated_duration_fmt": extrapolated_duration_fmt,
+        "extrapolated_duration_tps_fmt": extrapolated_duration_tps_fmt,
+    }
 
 
 @stub.local_entrypoint()
 def main():
-    embed_dataset.remote()
+    for scale, batch_size in product([0.001], [256, 512]):
+        with open(f"benchmarks.json", "a") as f:
+            benchmark = embed_dataset.remote(down_scale=scale, batch_size=batch_size)
+            print(json.dumps(benchmark, indent=2))
+            f.write(json.dumps(benchmark, indent=2) + "\n")

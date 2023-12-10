@@ -1,0 +1,390 @@
+{
+  "downscale": 0.001,
+  "n_gpu": 2,
+  "duration": 67.973441256,
+  "characters_per_second": 2062520,
+  "extrapolated_duration": 67973,
+  "extrapolated_duration_fmt": "18:52:53",
+  "extrapolated_duration_tps_fmt": "2:38:03.805712"
+}
+{
+  "downscale": 0.002,
+  "n_gpu": 2,
+  "duration": 126.932127621,
+  "characters_per_second": 2239227,
+  "extrapolated_duration": 63466,
+  "extrapolated_duration_fmt": "17:37:46",
+  "extrapolated_duration_tps_fmt": "2:25:35.397955"
+}
+{
+  "downscale": 0.003,
+  "n_gpu": 2,
+  "duration": 185.84327929600002,
+  "characters_per_second": 2186611,
+  "extrapolated_duration": 61947,
+  "extrapolated_duration_fmt": "17:12:27",
+  "extrapolated_duration_tps_fmt": "2:29:05.596156"
+}{
+  "downscale": 0.001,
+  "n_gpu": 4,
+  "duration": 54.055611473,
+  "characters_per_second": 2593562,
+  "extrapolated_duration": 54055,
+  "extrapolated_duration_fmt": "15:00:55",
+  "extrapolated_duration_tps_fmt": "2:05:41.959266"
+}
+{
+  "downscale": 0.002,
+  "n_gpu": 4,
+  "duration": 108.512611745,
+  "characters_per_second": 2619326,
+  "extrapolated_duration": 54256,
+  "extrapolated_duration_fmt": "15:04:16",
+  "extrapolated_duration_tps_fmt": "2:04:27.775663"
+}
+{
+  "downscale": 0.003,
+  "n_gpu": 4,
+  "duration": 157.210346775,
+  "characters_per_second": 2584862,
+  "extrapolated_duration": 52403,
+  "extrapolated_duration_fmt": "14:33:23",
+  "extrapolated_duration_tps_fmt": "2:06:07.343617"
+}{
+  "downscale": 0.001,
+  "n_gpu": 6,
+  "duration": 51.837911823000006,
+  "characters_per_second": 2704519,
+  "extrapolated_duration": 51837,
+  "extrapolated_duration_fmt": "14:23:57",
+  "extrapolated_duration_tps_fmt": "2:00:32.538931"
+}
+{
+  "downscale": 0.002,
+  "n_gpu": 6,
+  "duration": 108.571174063,
+  "characters_per_second": 2617913,
+  "extrapolated_duration": 54285,
+  "extrapolated_duration_fmt": "15:04:45",
+  "extrapolated_duration_tps_fmt": "2:04:31.806342"
+}
+{
+  "downscale": 0.003,
+  "n_gpu": 6,
+  "duration": 158.26318665399998,
+  "characters_per_second": 2567666,
+  "extrapolated_duration": 52754,
+  "extrapolated_duration_fmt": "14:39:14",
+  "extrapolated_duration_tps_fmt": "2:06:58.023122"
+}
+{
+  "downscale": 0.001,
+  "n_gpu": 10,
+  "duration": 51.495737391000006,
+  "characters_per_second": 2722489,
+  "extrapolated_duration": 51495,
+  "extrapolated_duration_fmt": "14:18:15",
+  "extrapolated_duration_tps_fmt": "1:59:44.799996"
+}
+{
+  "downscale": 0.002,
+  "n_gpu": 10,
+  "duration": 112.757579066,
+  "characters_per_second": 2520716,
+  "extrapolated_duration": 56378,
+  "extrapolated_duration_fmt": "15:39:38",
+  "extrapolated_duration_tps_fmt": "2:09:19.913833"
+}
+{
+  "downscale": 0.003,
+  "n_gpu": 10,
+  "duration": 156.654851753,
+  "characters_per_second": 2594028,
+  "extrapolated_duration": 52218,
+  "extrapolated_duration_fmt": "14:30:18",
+  "extrapolated_duration_tps_fmt": "2:05:40.604402"
+}
+{
+  "downscale": 0.001,
+  "n_gpu": 10,
+  "duration": 24.29562405,
+  "characters_per_second": 5770447,
+  "extrapolated_duration": 24295,
+  "extrapolated_duration_fmt": "6:44:55",
+  "extrapolated_duration_tps_fmt": "0:56:29.778809"
+}
+{
+  "downscale": 0.001,
+  "n_gpu": 15,
+  "duration": 26.550341513,
+  "characters_per_second": 5280407,
+  "extrapolated_duration": 26550,
+  "extrapolated_duration_fmt": "7:22:30",
+  "extrapolated_duration_tps_fmt": "1:01:44.361985"
+}
+{
+  "downscale": 0.001,
+  "n_gpu": 5,
+  "duration": 38.768701959,
+  "characters_per_second": 3616232,
+  "extrapolated_duration": 38768,
+  "extrapolated_duration_fmt": "10:46:08",
+  "extrapolated_duration_tps_fmt": "1:30:09.094040"
+}
+{
+  "downscale": 0.001,
+  "n_gpu": 2,
+  "duration": 70.59970030899999,
+  "characters_per_second": 1985796,
+  "extrapolated_duration": 70599,
+  "extrapolated_duration_fmt": "19:36:39",
+  "extrapolated_duration_tps_fmt": "2:44:10.225782"
+}
+{
+  "downscale": 0.001,
+  "n_gpu": 15,
+  "duration": 27.907161792,
+  "characters_per_second": 5023679,
+  "extrapolated_duration": 27907,
+  "extrapolated_duration_fmt": "7:45:07",
+  "extrapolated_duration_tps_fmt": "1:04:53.668158"
+}
+{
+  "downscale": 0.001,
+  "n_gpu": 10,
+  "duration": 24.357711892,
+  "characters_per_second": 5755738,
+  "extrapolated_duration": 24357,
+  "extrapolated_duration_fmt": "6:45:57",
+  "extrapolated_duration_tps_fmt": "0:56:38.441513"
+}
+{
+  "downscale": 0.001,
+  "n_gpu": 10,
+  "duration": 39.12060924,
+  "characters_per_second": 3583702,
+  "extrapolated_duration": 39120,
+  "extrapolated_duration_fmt": "10:52:00",
+  "extrapolated_duration_tps_fmt": "1:30:58.193499"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 32,
+  "n_gpu": 10,
+  "duration": 55.797684278000006,
+  "characters_per_second": 2512588,
+  "extrapolated_duration": 55797,
+  "extrapolated_duration_fmt": "15:29:57",
+  "extrapolated_duration_tps_fmt": "2:09:45.016468"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 32,
+  "n_gpu": 10,
+  "duration": 35.527137707,
+  "characters_per_second": 3946184,
+  "extrapolated_duration": 35527,
+  "extrapolated_duration_fmt": "9:52:07",
+  "extrapolated_duration_tps_fmt": "1:22:36.823847"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 64,
+  "n_gpu": 10,
+  "duration": 36.879771675,
+  "characters_per_second": 3801450,
+  "extrapolated_duration": 36879,
+  "extrapolated_duration_fmt": "10:14:39",
+  "extrapolated_duration_tps_fmt": "1:25:45.546820"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 128,
+  "n_gpu": 10,
+  "duration": 18.674182830999996,
+  "characters_per_second": 7507510,
+  "extrapolated_duration": 18674,
+  "extrapolated_duration_fmt": "5:11:14",
+  "extrapolated_duration_tps_fmt": "0:43:25.462924"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 200,
+  "n_gpu": 20,
+  "duration": 30.627626173,
+  "characters_per_second": 4577456,
+  "extrapolated_duration": 30627,
+  "extrapolated_duration_fmt": "8:30:27",
+  "extrapolated_duration_tps_fmt": "1:11:13.233638"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 200,
+  "n_gpu": 20,
+  "duration": 25.039010245000004,
+  "characters_per_second": 5599128,
+  "extrapolated_duration": 25039,
+  "extrapolated_duration_fmt": "6:57:19",
+  "extrapolated_duration_tps_fmt": "0:58:13.497373"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 200,
+  "n_gpu": 20,
+  "duration": 22.728412611000003,
+  "characters_per_second": 6168342,
+  "extrapolated_duration": 22728,
+  "extrapolated_duration_fmt": "6:18:48",
+  "extrapolated_duration_tps_fmt": "0:52:51.117775"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 256,
+  "n_gpu": 20,
+  "duration": 13.388801352999998,
+  "characters_per_second": 10471185,
+  "extrapolated_duration": 13388,
+  "extrapolated_duration_fmt": "3:43:08",
+  "extrapolated_duration_tps_fmt": "0:31:08.034894"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 256,
+  "n_gpu": 30,
+  "duration": 22.075031322,
+  "characters_per_second": 6350914,
+  "extrapolated_duration": 22075,
+  "extrapolated_duration_fmt": "6:07:55",
+  "extrapolated_duration_tps_fmt": "0:51:19.956516"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 256,
+  "n_gpu": 30,
+  "duration": 22.781672217000008,
+  "characters_per_second": 6153921,
+  "extrapolated_duration": 22781,
+  "extrapolated_duration_fmt": "6:19:41",
+  "extrapolated_duration_tps_fmt": "0:52:58.548921"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 256,
+  "n_gpu": 30,
+  "n_inputs": 30,
+  "duration": 21.403603631,
+  "characters_per_second": 6550141,
+  "extrapolated_duration": 21403,
+  "extrapolated_duration_fmt": "5:56:43",
+  "extrapolated_duration_tps_fmt": "0:49:46.277541"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 420,
+  "n_gpu": 30,
+  "n_inputs": 30,
+  "duration": 13.386668532000002,
+  "characters_per_second": 10472854,
+  "extrapolated_duration": 13386,
+  "extrapolated_duration_fmt": "3:43:06",
+  "extrapolated_duration_tps_fmt": "0:31:07.737195"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 256,
+  "n_gpu": 30,
+  "n_inputs": 40,
+  "duration": 22.148485491000002,
+  "characters_per_second": 6329851,
+  "extrapolated_duration": 22148,
+  "extrapolated_duration_fmt": "6:09:08",
+  "extrapolated_duration_tps_fmt": "0:51:30.205276"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 512,
+  "n_gpu": 30,
+  "n_inputs": 20,
+  "duration": 21.856657188,
+  "characters_per_second": 6414367,
+  "extrapolated_duration": 21856,
+  "extrapolated_duration_fmt": "6:04:16",
+  "extrapolated_duration_tps_fmt": "0:50:49.488587"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 512,
+  "n_gpu": 50,
+  "n_inputs": 50,
+  "duration": 9.560951485,
+  "characters_per_second": 14663459,
+  "extrapolated_duration": 9560,
+  "extrapolated_duration_fmt": "2:39:20",
+  "extrapolated_duration_tps_fmt": "0:22:13.964855"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 256,
+  "n_gpu": 50,
+  "n_inputs": 30,
+  "duration": 25.937977915999998,
+  "characters_per_second": 5405071,
+  "extrapolated_duration": 25937,
+  "extrapolated_duration_fmt": "7:12:17",
+  "extrapolated_duration_tps_fmt": "1:00:18.923592"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 256,
+  "n_gpu": 50,
+  "n_inputs": 20,
+  "duration": 22.038034869,
+  "characters_per_second": 6361575,
+  "extrapolated_duration": 22038,
+  "extrapolated_duration_fmt": "6:07:18",
+  "extrapolated_duration_tps_fmt": "0:51:14.794993"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 512,
+  "n_gpu": 50,
+  "n_inputs": 20,
+  "duration": 13.842640891000002,
+  "characters_per_second": 10127881,
+  "extrapolated_duration": 13842,
+  "extrapolated_duration_fmt": "3:50:42",
+  "extrapolated_duration_tps_fmt": "0:32:11.355528"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 256,
+  "n_gpu": 50,
+  "n_inputs": 25,
+  "duration": 22.769331554,
+  "characters_per_second": 6157257,
+  "extrapolated_duration": 22769,
+  "extrapolated_duration_fmt": "6:19:29",
+  "extrapolated_duration_tps_fmt": "0:52:56.826785"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 256,
+  "n_gpu": 50,
+  "n_inputs": 20,
+  "duration": 267.98979353,
+  "characters_per_second": 523141,
+  "extrapolated_duration": 267989,
+  "extrapolated_duration_fmt": "3 days, 2:26:29",
+  "extrapolated_duration_tps_fmt": "10:23:10.567661"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 512,
+  "n_gpu": 50,
+  "n_inputs": 20,
+  "duration": 172.217609533,
+  "characters_per_second": 814066,
+  "extrapolated_duration": 172217,
+  "extrapolated_duration_fmt": "1 day, 23:50:17",
+  "extrapolated_duration_tps_fmt": "6:40:28.197907"
+}
