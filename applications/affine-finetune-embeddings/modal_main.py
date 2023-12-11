@@ -23,7 +23,7 @@ checkpoints_dirpath = pathlib.Path("/root/checkpoints")
 def run():
     run_optuna(str(checkpoints_dirpath))
     stub.volume.commit()
-    res = inference(["hello world"], ["hi earth"], str(checkpoints_dirpath)+"/checkpoint-0.ckpt")
+    res = inference(["hello world"], ["hi earth"], checkpoints_dirpath / "checkpoint-0.ckpt")
     print('embedding:', res)
     
 
