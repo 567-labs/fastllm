@@ -3,9 +3,9 @@ import json
 import subprocess
 from pathlib import Path
 
-from modal import Image, Stub, Volume, gpu, method
+from modal import Image, Stub, Volume, gpu, method, Secret
 
-N_GPU = 50
+N_GPU = 10
 N_INPUTS = 20
 GPU_CONFIG = gpu.A10G()
 MODEL_ID = "BAAI/bge-base-en-v1.5"
@@ -20,6 +20,10 @@ volume = Volume.persisted("embedding-wikipedia")
 cache_dir = "/data"
 data_dir = f"{cache_dir}/{dataset_name}"
 DATA_PATH = Path(data_dir)
+
+PUSH_TO_HUB = True
+dataset_name = "567-labs/wikipedia-embedding-sample"
+dataset_file = "wiki-embeddings.paraquet"
 
 LAUNCH_FLAGS = [
     "--model-id",
@@ -114,21 +118,24 @@ class TextEmbeddingsInference:
 
     @method()
     async def embed(self, texts: list[str]):
-        n_chars = sum(map(len, texts))
-        _ = await self.client.post("/embed", json={"inputs": texts})
-        return n_chars
+        res = await self.client.post("/embed", json={"inputs": texts})
+        embeddings = res.json()
+        return np.array(embeddings)
 
 
 @stub.function(
-    image=Image.debian_slim().pip_install("datasets"),
+    image=Image.debian_slim().pip_install("datasets", "pyarrow"),
     volumes={cache_dir: volume},
     timeout=5000,
+    secret=Secret.from_name("huggingface-credentials"),
 )
 def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
-    from datasets import load_from_disk
-
+    from datasets import load_from_disk, load_dataset
+    import pyarrow as pa
+    import pyarrow.parquet as pq
     import time
     import datetime
+    import os
 
     start = time.perf_counter()
     # Load the dataset as a Hugging Face dataset
@@ -153,21 +160,34 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
     print(f"Working with {sample_size} rows")
 
     text_chunks = generate_chunks_from_dataset(subset, chunk_size=400)
-    batches = generate_batches(
-        text_chunks, batch_size=batch_size
-    )  # 32 is the max batch size of the model
+    batches = generate_batches(text_chunks, batch_size=batch_size)
 
     start = time.perf_counter()
-    materialized_batchs = list(batches)
+    materialized_batches = list(batches)
     print(
-        f"Materialized {len(materialized_batchs)} batches in {time.perf_counter()-start:.2f} seconds"
+        f"Materialized {len(materialized_batches)} batches in {time.perf_counter()-start:.2f} seconds"
     )
 
     start = time.perf_counter()
     counter = 0
-    for n_chars in model.embed.map(materialized_batchs, order_outputs=False):
-        counter += n_chars
+    texts = []
+    embeddings = []
+    for text_chunk_batch, computed_embedding in zip(
+        materialized_batches, model.embed.map(materialized_batches, order_outputs=False)
+    ):
+        counter += sum(map(len, text_chunk_batch))
+        texts.extend(text_chunk_batch)
+        embeddings.extend(computed_embedding)
+
     end = time.perf_counter()
+
+    if PUSH_TO_HUB:
+        table = pa.Table.from_arrays(
+            [pa.array(texts), pa.array(embeddings)], names=["text", "embedding"]
+        )
+        pq.write_table(table, dataset_file)
+        dataset = load_dataset("parquet", data_files=dataset_file)
+        dataset.push_to_hub(dataset_name, token=os.environ["HUGGINGFACE_TOKEN"])
 
     duration = end - start
     characters_per_second = int(counter / duration)
