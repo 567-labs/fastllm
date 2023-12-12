@@ -21,28 +21,6 @@ def load_df_sentence_compression() -> (pd.DataFrame, pd.DataFrame):
     df2 = pd.DataFrame(l2)
     return df1, df2
 
-def load_df_sample():
-    # csv dataset
-    df = pd.read_csv("text_dataset.csv")
-
-    # test dataset
-    # data = {
-    #     "query": ["hello world", "hello world", "hello world"],
-    #     "fact": ["hi world", "hi world", "hi world"]
-    # }
-    # df = pd.DataFrame(data)
-
-    print(f"Loading {len(df)} rows of data")
-
-    df1 = df["query"].tolist()
-    df2 = df["fact"].tolist()
-
-    df1 = pd.DataFrame(df1)
-    df2 = pd.DataFrame(df2)
-    print(df1)
-    return df1, df2
-
-
 def load_and_split_data(df1, df2):
     # df1: query
     # df2: fact
@@ -98,7 +76,7 @@ class EmbeddingDataset(Dataset):
         return len(self.df1)
 
     def __getitem__(self, idx):
-        # TODO: change get_item
+        # TODO: change get_item to return just text
         # encoded_input_1 = self.tokenizer(
         #     self.df1[0].values.tolist(), padding=True, truncation=True, return_tensors="pt"
         # ).to(self.device)
