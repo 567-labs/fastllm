@@ -144,7 +144,7 @@ def objective(trial, checkpoint_dirpath):
 
     # Initialize trainer with TensorBoard logger
     trainer = pl.Trainer(
-        max_epochs=10, #TODO: up this for actual training
+        max_epochs=3, #TODO: up this for actual training
         logger=logger,
         callbacks=[f1_check],
     )

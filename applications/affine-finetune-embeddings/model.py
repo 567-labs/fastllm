@@ -24,6 +24,7 @@ import util
 class SimilarityModel(pl.LightningModule):
     def __init__(self, embedding_size, n_dims, dropout_fraction, lr, use_relu):
         super(SimilarityModel, self).__init__()
+        # TODO: add base embedding and tokenization model here
         self.matrix = torch.nn.Parameter(
             torch.rand(
                 embedding_size,
@@ -44,15 +45,14 @@ class SimilarityModel(pl.LightningModule):
         self.scale = 20  # MNRL loss scale: https://www.sbert.net/docs/package_reference/losses.html#multiplenegativesrankingloss
 
     def forward(self, embedding_1):
-        # TODO: modify this to make this encode
-        # modify to call encode
-        # maybe make this encode
+        # TODO: modify to take in text and return modified embedding
         e = F.dropout(embedding_1, p=self.dropout_fraction)
         matrix = self.matrix if not self.use_relu else F.relu(self.matrix)
         modified_embedding = e @ matrix
         return modified_embedding
 
     def encode(self, embedding):
+        # TODO: remove this function
         # user can call this from modal endpoint, model after endpoint
         # look into how huggingface inference works, make it compatible
         # returns an actual embedding
@@ -62,9 +62,9 @@ class SimilarityModel(pl.LightningModule):
         return torch.optim.Adam(self.parameters(), lr=self.lr)
 
     def training_step(self, batch, batch_idx):
-        # TODO: make this MultipleNegativesRankingLoss
-        # train step should make a b x b size matrix where b = batch_size
-        # has similarity for every combination of words together
+        # MultipleNegativesRankingLoss: https://www.sbert.net/docs/package_reference/losses.html#multiplenegativesrankingloss
+        # inspired from: https://github.com/UKPLab/sentence-transformers/blob/master/sentence_transformers/losses/MultipleNegativesRankingLoss.py
+        # TODO: modify so that batch gets texts instead of embeddings
         embeddings_a, embeddings_b = batch
         modified_embedding_a = self(embeddings_a)
         modified_embedding_b = self(embeddings_b)
@@ -76,11 +76,14 @@ class SimilarityModel(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        # TODO: make this MultipleNegativesRankingLoss
+        # MultipleNegativesRankingLoss: https://www.sbert.net/docs/package_reference/losses.html#multiplenegativesrankingloss
+        # inspired from: https://github.com/UKPLab/sentence-transformers/blob/master/sentence_transformers/losses/MultipleNegativesRankingLoss.py
+
+        # TODO: modify so that batch gets texts instead of embeddings
         embeddings_a, embeddings_b = batch
         modified_embedding_a = self(embeddings_a)
         modified_embedding_b = self(embeddings_b)
-       # print(modified_embedding_a, modified_embedding_b)
+        # print(modified_embedding_a, modified_embedding_b)
         scores = util.cos_sim(modified_embedding_a, modified_embedding_b) * self.scale
         labels = torch.tensor(
             range(len(scores)), dtype=torch.long, device=scores.device
@@ -123,7 +126,10 @@ class SimilarityModel(pl.LightningModule):
         pass
 
     def test_step(self, batch, batch_idx):
-        # TODO: make this MultipleNegativesRankingLoss
+        # MultipleNegativesRankingLoss: https://www.sbert.net/docs/package_reference/losses.html#multiplenegativesrankingloss
+        # inspired from: https://github.com/UKPLab/sentence-transformers/blob/master/sentence_transformers/losses/MultipleNegativesRankingLoss.py
+
+        # TODO: modify so that batch gets texts instead of embeddings
         embeddings_a, embeddings_b = batch
         modified_embedding_a = self(embeddings_a)
         modified_embedding_b = self(embeddings_b)

@@ -42,6 +42,7 @@ if __name__ == "__main__":
         checkpoint_num = sys.argv[1]
     checkpoint_dirpath = "checkpoints_stratified"
     res = inference(
+        # TODO: use pathlib
         ["hi world"], f"{checkpoint_dirpath}/checkpoint-{checkpoint_num}.ckpt"
     )
     print(res)
