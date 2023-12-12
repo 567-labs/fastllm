@@ -12,6 +12,7 @@ image = modal.Image.debian_slim().pip_install(
     "scikit-learn",
     "transformers",
     "tensorboard",
+    "datasets",
 )
 stub = modal.Stub("run-optuna")
 stub.volume = modal.Volume.new()
@@ -23,7 +24,7 @@ checkpoints_dirpath = pathlib.Path("/root/checkpoints")
 def run():
     run_optuna(str(checkpoints_dirpath))
     stub.volume.commit()
-    res = inference(["hello world"], ["hi earth"], checkpoints_dirpath / "checkpoint-0.ckpt")
+    res = inference(["hello world"], checkpoints_dirpath / "checkpoint-0.ckpt")
     print('embedding:', res)
     
 
