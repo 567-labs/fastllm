@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader
 from dataset import PairsDataset, load_and_split_data, load_df_sentence_compression
 from model import SimilarityModel
 import pytorch_lightning as pl
+import pathlib
 
 model_id = "BAAI/bge-small-en-v1.5"
 
@@ -178,24 +179,10 @@ def run_optuna(checkpoint_dirpath):
 
 
 if __name__ == "__main__":
-    checkpoint_dirpath = "checkpoints_stratified"
-    best_trial_id = run_optuna(checkpoint_dirpath)
+    checkpoints_dirpath = pathlib.Path("./checkpoints_stratified")
+    best_trial_id = run_optuna(checkpoints_dirpath)
     print("--------------------------")
     print("best trial id:", best_trial_id)
 
     # test inference code
-    model = SimilarityModel.load_from_checkpoint("checkpoints_stratified/checkpoint-0.ckpt")
-    device = (
-        torch.device("cuda")
-        if torch.cuda.is_available()
-        else torch.device("mps")
-        if torch.backends.mps.is_available()
-        else torch.device("cpu")
-    )
-    model.to(device)
-    text = "hello world"
-    with torch.no_grad():
-        finetune_embedding = model(["hello world", "i like taco"])
-        print(finetune_embedding)
-
-
+    

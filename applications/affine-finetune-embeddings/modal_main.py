@@ -1,7 +1,7 @@
 from main import run_optuna
 import modal
 import pathlib
-from inference import inference
+from model import SimilarityModel
 
 image = modal.Image.debian_slim().pip_install(
     "torch",
@@ -22,9 +22,10 @@ checkpoints_dirpath = pathlib.Path("/root/checkpoints")
 
 @stub.function(image=image, gpu="any", volumes={checkpoints_dirpath: stub.volume})
 def run():
-    run_optuna(str(checkpoints_dirpath))
+    run_optuna(checkpoints_dirpath)
     stub.volume.commit()
-    res = inference(["hello world"], checkpoints_dirpath / "checkpoint-0.ckpt")
+    model = SimilarityModel.load_from_checkpoint(checkpoints_dirpath / "checkpoint-0.ckpt")
+    res = model(["hello world"])
     print('embedding:', res)
     
 
