@@ -3,7 +3,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
 import torch
 from torch.utils.data import DataLoader
-from dataset import EmbeddingDataset, load_and_split_data, load_df_sentence_compression
+from dataset import PairsDataset, load_and_split_data, load_df_sentence_compression
 from model import SimilarityModel
 import pytorch_lightning as pl
 
@@ -95,9 +95,9 @@ def objective(trial, checkpoint_dirpath):
     ) = load_and_split_data(*load_df_sentence_compression())
 
     # Create Datasets and DataLoaders for training, validation, and test
-    train_dataset = EmbeddingDataset(train_df1, train_df2, model_id)
-    val_dataset = EmbeddingDataset(val_df1, val_df2, model_id)
-    test_dataset = EmbeddingDataset(test_df1, test_df2, model_id)
+    train_dataset = PairsDataset(train_df1, train_df2)
+    val_dataset = PairsDataset(val_df1, val_df2)
+    test_dataset = PairsDataset(test_df1, test_df2)
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
@@ -182,3 +182,20 @@ if __name__ == "__main__":
     best_trial_id = run_optuna(checkpoint_dirpath)
     print("--------------------------")
     print("best trial id:", best_trial_id)
+
+    # test inference code
+    model = SimilarityModel.load_from_checkpoint("checkpoints_stratified/checkpoint-0.ckpt")
+    device = (
+        torch.device("cuda")
+        if torch.cuda.is_available()
+        else torch.device("mps")
+        if torch.backends.mps.is_available()
+        else torch.device("cpu")
+    )
+    model.to(device)
+    text = "hello world"
+    with torch.no_grad():
+        finetune_embedding = model(["hello world", "i like taco"])
+        print(finetune_embedding)
+
+

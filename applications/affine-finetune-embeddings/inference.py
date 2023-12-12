@@ -1,3 +1,4 @@
+# TODO: move this to the model
 # test inference code using a checkpoint
 
 from model import SimilarityModel

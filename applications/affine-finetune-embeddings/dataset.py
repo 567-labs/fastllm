@@ -13,7 +13,7 @@ def load_df_sentence_compression() -> (pd.DataFrame, pd.DataFrame):
     # probably a faster way to do this with huggingface dataset library
     l1 = []
     l2 = []
-    for item in dataset[:100]["set"]:
+    for item in dataset[:1500]["set"]:
     # for item in dataset[:]["set"]:
         l1.append(item[0])
         l2.append(item[1])
@@ -55,28 +55,16 @@ def load_and_split_data(df1, df2):
     )
 
 
-class EmbeddingDataset(Dataset):
-    def __init__(self, df1, df2, model_id):
-        # TODO: change dataloader so that it just returns text instead
-        self.tokenizer = AutoTokenizer.from_pretrained(model_id)
-        self.model = AutoModel.from_pretrained(model_id)
+class PairsDataset(Dataset):
+    def __init__(self, df1, df2):
         self.df1 = df1
         self.df2 = df2
-        self.device = (
-            torch.device("cuda")
-            if torch.cuda.is_available()
-            else torch.device("mps")
-            if torch.backends.mps.is_available()
-            else torch.device("cpu")
-        )
-        self.model.to(self.device)
-
-        
+                
     def __len__(self):
         return len(self.df1)
 
     def __getitem__(self, idx):
-        # TODO: change get_item to return just text
+        return self.df1.iat[idx,0], self.df2.iat[idx,0]
         # encoded_input_1 = self.tokenizer(
         #     self.df1[0].values.tolist(), padding=True, truncation=True, return_tensors="pt"
         # ).to(self.device)
@@ -119,8 +107,8 @@ if __name__ == "__main__":
         test_df2,
     ) = load_and_split_data(*load_df_sentence_compression())
 
-    train_dataset = EmbeddingDataset(train_df1, train_df2, "BAAI/bge-small-en-v1.5")
+    train_dataset = PairsDataset(train_df1, train_df2)
 
-    train_dataset[0]
+    print(train_dataset[0])
     # print("first row", train_dataset[0])
     # print("embedding size", len(train_dataset[0][0]))
