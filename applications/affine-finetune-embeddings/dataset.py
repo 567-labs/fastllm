@@ -6,6 +6,7 @@ from transformers import AutoTokenizer, AutoModel
 
 from datasets import load_dataset
 
+
 def load_df_sentence_compression() -> (pd.DataFrame, pd.DataFrame):
     # embedding-data/sentence-compression only has a "train" split
     dataset = load_dataset("embedding-data/sentence-compression", split="train")
@@ -14,12 +15,13 @@ def load_df_sentence_compression() -> (pd.DataFrame, pd.DataFrame):
     l1 = []
     l2 = []
     for item in dataset[:1500]["set"]:
-    # for item in dataset[:]["set"]:
+        # for item in dataset[:]["set"]:
         l1.append(item[0])
         l2.append(item[1])
     df1 = pd.DataFrame(l1)
     df2 = pd.DataFrame(l2)
     return df1, df2
+
 
 def load_and_split_data(df1, df2):
     # df1: query
@@ -59,42 +61,12 @@ class PairsDataset(Dataset):
     def __init__(self, df1, df2):
         self.df1 = df1
         self.df2 = df2
-                
+
     def __len__(self):
         return len(self.df1)
 
     def __getitem__(self, idx):
-        return self.df1.iat[idx,0], self.df2.iat[idx,0]
-        # encoded_input_1 = self.tokenizer(
-        #     self.df1[0].values.tolist(), padding=True, truncation=True, return_tensors="pt"
-        # ).to(self.device)
-        # encoded_input_2 = self.tokenizer(
-        #     self.df2[0].values.tolist(), padding=True, truncation=True, return_tensors="pt"
-        # ).to(self.device)
-
-        # Tokenize only the sentence at the given index
-        encoded_input_1 = self.tokenizer(
-            self.df1.iat[idx,0], padding=True, truncation=True, return_tensors="pt"
-        )
-        encoded_input_2 = self.tokenizer(
-            self.df2.iat[idx,0], padding=True, truncation=True, return_tensors="pt"
-        )
-
-        # Move the encoded inputs to the GPU
-        encoded_input_1 = {k: v.to(self.device) for k, v in encoded_input_1.items()}
-        encoded_input_2 = {k: v.to(self.device) for k, v in encoded_input_2.items()}
-
-        with torch.no_grad():
-            model_output_1 = self.model(**encoded_input_1)
-            model_output_2 = self.model(**encoded_input_2)
-            # Perform pooling. In this case, cls pooling.
-            self.embedding_1 = model_output_1[0][:, 0]
-            self.embedding_2 = model_output_2[0][:, 0]
-
-            self.embedding_1 = torch.nn.functional.normalize(self.embedding_1, p=2, dim=1)
-            self.embedding_2 = torch.nn.functional.normalize(self.embedding_2, p=2, dim=1)
-
-        return self.embedding_1[0], self.embedding_2[0]
+        return self.df1.iat[idx, 0], self.df2.iat[idx, 0]
 
 
 if __name__ == "__main__":

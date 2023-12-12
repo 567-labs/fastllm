@@ -183,6 +183,4 @@ if __name__ == "__main__":
     best_trial_id = run_optuna(checkpoints_dirpath)
     print("--------------------------")
     print("best trial id:", best_trial_id)
-
-    # test inference code
     
