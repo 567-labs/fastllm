@@ -35,7 +35,7 @@ LAUNCH_FLAGS = [
     "--max-client-batch-size",
     str(BATCH_SIZE),
     "--max-batch-tokens",
-    str(BATCH_SIZE * 512)
+    str(BATCH_SIZE * 512),
 ]
 
 
@@ -135,7 +135,6 @@ class TextEmbeddingsInference:
         return np.array(embeddings)
 
 
-
 @stub.function(
     image=Image.debian_slim().pip_install("datasets", "pyarrow", "tqdm"),
     volumes={cache_dir: volume},
@@ -150,7 +149,6 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
     import time
     import datetime
     import os
-
 
     start = time.perf_counter()
     # Load the dataset as a Hugging Face dataset
@@ -175,9 +173,7 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
     print(f"Working with {sample_size} rows")
 
     text_chunks = generate_chunks_from_dataset(subset, chunk_size=400)
-    batches = generate_batches(
-        text_chunks, batch_size=batch_size
-    )
+    batches = generate_batches(text_chunks, batch_size=batch_size)
 
     start = time.perf_counter()
     materialized_batchs = list(batches)
