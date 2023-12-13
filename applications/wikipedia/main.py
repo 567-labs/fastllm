@@ -3,12 +3,14 @@ import json
 import subprocess
 from pathlib import Path
 
-from modal import Image, Stub, Volume, gpu, method
+from modal import Image, Stub, Volume, gpu, method, Secret
 
 N_GPU = 50
 N_INPUTS = 20
 GPU_CONFIG = gpu.A10G()
-MODEL_ID = "BAAI/bge-base-en-v1.5"
+MODEL_ID = "BAAI/bge-small-en-v1.5"
+MODEL_SLUG = MODEL_ID.split("/")[-1]
+
 BATCH_SIZE = 256 * 2
 DOCKER_IMAGE = (
     "ghcr.io/huggingface/text-embeddings-inference:86-0.4.0"  # Ampere 86 for A10s.
@@ -21,6 +23,10 @@ cache_dir = "/data"
 data_dir = f"{cache_dir}/{dataset_name}"
 DATA_PATH = Path(data_dir)
 
+PUSH_TO_HUB = True
+dataset_name = f"567-labs/wikipedia-embedding-{MODEL_SLUG}-sample"
+dataset_file = "wiki-embeddings.paraquet"
+
 LAUNCH_FLAGS = [
     "--model-id",
     MODEL_ID,
@@ -29,7 +35,7 @@ LAUNCH_FLAGS = [
     "--max-client-batch-size",
     str(BATCH_SIZE),
     "--max-batch-tokens",
-    str(16384 * 3),
+    str(BATCH_SIZE * 512)
 ]
 
 
@@ -75,11 +81,19 @@ with tei_image.run_inside():
     import numpy as np
 
 
-def generate_chunks_from_dataset(xs, chunk_size=400):
+def generate_chunks_from_dataset(xs, chunk_size: int):
     for data in xs:
+        id_ = data["id"]
+        url = data["url"]
+        title = data["title"]
         text = data["text"]
         for chunk_start in range(0, len(text), chunk_size):
-            yield text[chunk_start : chunk_start + chunk_size]
+            yield (
+                id_,
+                url,
+                title,
+                text[chunk_start : chunk_start + chunk_size],
+            )
 
 
 def generate_batches(xs, batch_size=50):
@@ -113,22 +127,30 @@ class TextEmbeddingsInference:
         self.process.terminate()
 
     @method()
-    async def embed(self, texts: list[str]):
-        n_chars = sum(map(len, texts))
-        _ = await self.client.post("/embed", json={"inputs": texts})
-        return n_chars
+    async def embed(self, chunks):
+        """Embeds a list of texts.  id, url, title, text = chunks[0]"""
+        texts = [chunk[3] for chunk in chunks]
+        res = await self.client.post("/embed", json={"inputs": texts})
+        embeddings = res.json()
+        return np.array(embeddings)
+
 
 
 @stub.function(
-    image=Image.debian_slim().pip_install("datasets"),
+    image=Image.debian_slim().pip_install("datasets", "pyarrow", "tqdm"),
     volumes={cache_dir: volume},
     timeout=5000,
+    secret=Secret.from_name("huggingface-credentials"),
 )
 def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
-    from datasets import load_from_disk
-
+    from datasets import load_from_disk, load_dataset
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from tqdm import tqdm
     import time
     import datetime
+    import os
+
 
     start = time.perf_counter()
     # Load the dataset as a Hugging Face dataset
@@ -155,19 +177,42 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
     text_chunks = generate_chunks_from_dataset(subset, chunk_size=400)
     batches = generate_batches(
         text_chunks, batch_size=batch_size
-    )  # 32 is the max batch size of the model
+    )
 
     start = time.perf_counter()
     materialized_batchs = list(batches)
     print(
         f"Materialized {len(materialized_batchs)} batches in {time.perf_counter()-start:.2f} seconds"
     )
+    acc_chunks = []
+    embeddings = []
+    for batch_chunks, batch_embeddings in zip(
+        materialized_batches,
+        model.embed.map(materialized_batches, order_outputs=True),
+    ):
+        acc_chunks.extend(batch_chunks)
+        embeddings.extend(batch_embeddings)
 
-    start = time.perf_counter()
-    counter = 0
-    for n_chars in model.embed.map(materialized_batchs, order_outputs=False):
-        counter += n_chars
+        # Counting all characters in the dataset
+        counter += sum(map(len, [chunk[3] for chunk in batch_chunks]))
+
     end = time.perf_counter()
+
+    if PUSH_TO_HUB:
+        print(f"Pushing to hub {dataset_name}")
+        table = pa.Table.from_arrays(
+            [
+                pa.array([chunk[0] for chunk in acc_chunks]),  # id
+                pa.array([chunk[1] for chunk in acc_chunks]),  # url
+                pa.array([chunk[2] for chunk in acc_chunks]),  # title
+                pa.array([chunk[3] for chunk in acc_chunks]),  # text
+                pa.array(embeddings),
+            ],
+            names=["id", "url", "title", "text", "embedding"],
+        )
+        pq.write_table(table, dataset_file)
+        dataset = load_dataset("parquet", data_files=dataset_file)
+        dataset.push_to_hub(dataset_name, token=os.environ["HUGGINGFACE_TOKEN"])
 
     duration = end - start
     characters_per_second = int(counter / duration)
