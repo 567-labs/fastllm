@@ -10,6 +10,7 @@ N_INPUTS = 20
 GPU_CONFIG = gpu.A10G()
 MODEL_ID = "BAAI/bge-small-en-v1.5"
 MODEL_SLUG = MODEL_ID.split("/")[-1]
+
 BATCH_SIZE = 256 * 2
 DOCKER_IMAGE = (
     "ghcr.io/huggingface/text-embeddings-inference:86-0.4.0"  # Ampere 86 for A10s.
@@ -34,7 +35,7 @@ LAUNCH_FLAGS = [
     "--max-client-batch-size",
     str(BATCH_SIZE),
     "--max-batch-tokens",
-    str(BATCH_SIZE * 512),
+    str(BATCH_SIZE * 512)
 ]
 
 
@@ -134,6 +135,7 @@ class TextEmbeddingsInference:
         return np.array(embeddings)
 
 
+
 @stub.function(
     image=Image.debian_slim().pip_install("datasets", "pyarrow", "tqdm"),
     volumes={cache_dir: volume},
@@ -148,6 +150,7 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
     import time
     import datetime
     import os
+
 
     start = time.perf_counter()
     # Load the dataset as a Hugging Face dataset
@@ -171,17 +174,16 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
 
     print(f"Working with {sample_size} rows")
 
-    chunks = generate_chunks_from_dataset(subset, chunk_size=600)
-    batches = generate_batches(chunks, batch_size=batch_size)
-
-    start = time.perf_counter()
-    materialized_batches = list(batches)
-    print(
-        f"Materialized {len(materialized_batches)} batches in {time.perf_counter()-start:.2f} seconds"
+    text_chunks = generate_chunks_from_dataset(subset, chunk_size=400)
+    batches = generate_batches(
+        text_chunks, batch_size=batch_size
     )
 
     start = time.perf_counter()
-    counter = 0
+    materialized_batchs = list(batches)
+    print(
+        f"Materialized {len(materialized_batchs)} batches in {time.perf_counter()-start:.2f} seconds"
+    )
     acc_chunks = []
     embeddings = []
     for batch_chunks, batch_embeddings in zip(
