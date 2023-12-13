@@ -176,12 +176,13 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
     batches = generate_batches(text_chunks, batch_size=batch_size)
 
     start = time.perf_counter()
-    materialized_batchs = list(batches)
+    materialized_batches = list(batches)
     print(
-        f"Materialized {len(materialized_batchs)} batches in {time.perf_counter()-start:.2f} seconds"
+        f"Materialized {len(materialized_batches)} batches in {time.perf_counter()-start:.2f} seconds"
     )
     acc_chunks = []
     embeddings = []
+    char_count = 0
     for batch_chunks, batch_embeddings in zip(
         materialized_batches,
         model.embed.map(materialized_batches, order_outputs=True),
@@ -190,7 +191,7 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
         embeddings.extend(batch_embeddings)
 
         # Counting all characters in the dataset
-        counter += sum(map(len, [chunk[3] for chunk in batch_chunks]))
+        char_count += sum(map(len, [chunk[3] for chunk in batch_chunks]))
 
     end = time.perf_counter()
 
@@ -211,7 +212,7 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
         dataset.push_to_hub(dataset_name, token=os.environ["HUGGINGFACE_TOKEN"])
 
     duration = end - start
-    characters_per_second = int(counter / duration)
+    characters_per_second = int(char_count / duration)
     extrapolated_duration = int(duration / down_scale)
     extrapolated_duration_fmt = str(datetime.timedelta(seconds=extrapolated_duration))
     extrapolated_duration_tps_fmt = str(
