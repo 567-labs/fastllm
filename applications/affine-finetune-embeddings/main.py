@@ -166,7 +166,7 @@ def objective(trial, checkpoint_dirpath):
 def run_optuna(checkpoint_dirpath):
     # Run Optuna optimization
     study = optuna.create_study(direction="maximize")
-    study.optimize(lambda trial: objective(trial, checkpoint_dirpath), n_trials=1)
+    study.optimize(lambda trial: objective(trial, checkpoint_dirpath), n_trials=10)
 
     # Print the result
     print(f"Number of finished trials: {len(study.trials)}")
@@ -176,7 +176,6 @@ def run_optuna(checkpoint_dirpath):
     print(f"  Params: {trial.params}")
 
     return trial._trial_id
-
 
 if __name__ == "__main__":
     checkpoints_dirpath = pathlib.Path("./checkpoints_stratified")
