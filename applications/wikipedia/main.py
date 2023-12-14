@@ -145,7 +145,6 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
     from datasets import load_from_disk, load_dataset
     import pyarrow as pa
     import pyarrow.parquet as pq
-    from tqdm import tqdm
     import time
     import datetime
     import os
@@ -236,7 +235,7 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
 @stub.local_entrypoint()
 def main():
     for scale, batch_size in product([0.01], [512]):
-        with open(f"benchmarks.json", "a") as f:
+        with open("benchmarks.json", "a") as f:
             benchmark = embed_dataset.remote(down_scale=scale, batch_size=batch_size)
             print(json.dumps(benchmark, indent=2))
             f.write(json.dumps(benchmark, indent=2) + "\n")

@@ -13,7 +13,7 @@ The goal is to show how we can use Modal to embed large datasets quickly and eff
 1. Closed source models can not be finetuned on your own data, now matter how much user feedback you get.
 2. Remote APIs can be slow (rate limits, network latency, etc), and expensive (cost of tokens rather than compute time)
 
-Hypothetically, as we serve a RAG application, we can use user feedback to determine qhich questions and text passages are most relevant to the user. We can then use this data to finetune our embedding model to capture the nuances of our user's language and re-embed the source data to reflect this. This would allow us to serve more relevant results to our users and improve the overall experience!
+Hypothetically, as we serve a RAG application, we can use user feedback to determine which questions and text passages are most relevant to the user. We can then use this data to finetune our embedding model to capture the nuances of our user's language and re-embed the source data to reflect this. This would allow us to serve more relevant results to our users and improve the overall experience!
 
 ## Why Modal?
 
