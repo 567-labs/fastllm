@@ -145,7 +145,6 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
     from datasets import load_from_disk, load_dataset
     import pyarrow as pa
     import pyarrow.parquet as pq
-    from tqdm import tqdm
     import time
     import datetime
     import os
@@ -195,6 +194,25 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
 
     end = time.perf_counter()
 
+    duration = end - start
+    characters_per_second = int(char_count / duration)
+    extrapolated_duration = int(duration / down_scale)
+    extrapolated_duration_fmt = str(datetime.timedelta(seconds=extrapolated_duration))
+    extrapolated_duration_tps_fmt = str(
+        datetime.timedelta(seconds=dataset_chars / characters_per_second)
+    )
+    resp = {
+        "downscale": down_scale,
+        "batch_size": batch_size,
+        "n_gpu": N_GPU,
+        "n_inputs": N_INPUTS,
+        "duration": duration,
+        "characters_per_second": characters_per_second,
+        "extrapolated_duration": extrapolated_duration,
+        "extrapolated_duration_fmt": extrapolated_duration_fmt,
+        "extrapolated_duration_tps_fmt": extrapolated_duration_tps_fmt,
+    }
+
     if PUSH_TO_HUB:
         print(f"Pushing to hub {dataset_name}")
         table = pa.Table.from_arrays(
@@ -211,30 +229,13 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
         dataset = load_dataset("parquet", data_files=dataset_file)
         dataset.push_to_hub(dataset_name, token=os.environ["HUGGINGFACE_TOKEN"])
 
-    duration = end - start
-    characters_per_second = int(char_count / duration)
-    extrapolated_duration = int(duration / down_scale)
-    extrapolated_duration_fmt = str(datetime.timedelta(seconds=extrapolated_duration))
-    extrapolated_duration_tps_fmt = str(
-        datetime.timedelta(seconds=dataset_chars / characters_per_second)
-    )
-    return {
-        "downscale": down_scale,
-        "batch_size": batch_size,
-        "n_gpu": N_GPU,
-        "n_inputs": N_INPUTS,
-        "duration": duration,
-        "characters_per_second": characters_per_second,
-        "extrapolated_duration": extrapolated_duration,
-        "extrapolated_duration_fmt": extrapolated_duration_fmt,
-        "extrapolated_duration_tps_fmt": extrapolated_duration_tps_fmt,
-    }
+    return resp
 
 
 @stub.local_entrypoint()
 def main():
-    for scale, batch_size in product([0.001], [256, 512]):
-        with open(f"benchmarks.json", "a") as f:
+    for scale, batch_size in product([0.01], [512]):
+        with open("benchmarks.json", "a") as f:
             benchmark = embed_dataset.remote(down_scale=scale, batch_size=batch_size)
             print(json.dumps(benchmark, indent=2))
             f.write(json.dumps(benchmark, indent=2) + "\n")
