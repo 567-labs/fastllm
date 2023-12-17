@@ -5,13 +5,13 @@ from pathlib import Path
 
 from modal import Image, Stub, Volume, gpu, method, Secret
 
-N_GPU = 50
-N_INPUTS = 20
+N_GPU = 100
+N_INPUTS = 40
 GPU_CONFIG = gpu.A10G()
 MODEL_ID = "BAAI/bge-small-en-v1.5"
 MODEL_SLUG = MODEL_ID.split("/")[-1]
 
-BATCH_SIZE = 256 * 2
+BATCH_SIZE = 256 * 3
 DOCKER_IMAGE = (
     "ghcr.io/huggingface/text-embeddings-inference:86-0.4.0"  # Ampere 86 for A10s.
     # "ghcr.io/huggingface/text-embeddings-inference:0.4.0" # Ampere 80 for A100s.
@@ -114,6 +114,7 @@ def generate_batches(xs, batch_size=50):
     concurrency_limit=N_GPU,
     # Allow each container to process up to 10 batches at once.
     allow_concurrent_inputs=N_INPUTS,
+    retries=3,
 )
 class TextEmbeddingsInference:
     def __enter__(self):
@@ -132,7 +133,7 @@ class TextEmbeddingsInference:
         texts = [chunk[3] for chunk in chunks]
         res = await self.client.post("/embed", json={"inputs": texts})
         embeddings = res.json()
-        return np.array(embeddings)
+        return chunks, np.array(embeddings)
 
 
 @stub.function(
@@ -171,35 +172,25 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
 
     print(f"Working with {sample_size} rows")
 
-    text_chunks = generate_chunks_from_dataset(subset, chunk_size=400)
+    text_chunks = generate_chunks_from_dataset(subset, chunk_size=512)
     batches = generate_batches(text_chunks, batch_size=batch_size)
 
     start = time.perf_counter()
-    materialized_batches = list(batches)
-    print(
-        f"Materialized {len(materialized_batches)} batches in {time.perf_counter()-start:.2f} seconds"
-    )
     acc_chunks = []
     embeddings = []
-    char_count = 0
-    for batch_chunks, batch_embeddings in zip(
-        materialized_batches,
-        model.embed.map(materialized_batches, order_outputs=True),
-    ):
+    for batch_chunks, batch_embeddings in model.embed.map(batches, order_outputs=False):
         acc_chunks.extend(batch_chunks)
         embeddings.extend(batch_embeddings)
-
-        # Counting all characters in the dataset
-        char_count += sum(map(len, [chunk[3] for chunk in batch_chunks]))
 
     end = time.perf_counter()
 
     duration = end - start
-    characters_per_second = int(char_count / duration)
+    n_chunks = len(acc_chunks)
+    chunks_per_sec = int(n_chunks / duration)
     extrapolated_duration = int(duration / down_scale)
     extrapolated_duration_fmt = str(datetime.timedelta(seconds=extrapolated_duration))
-    extrapolated_duration_tps_fmt = str(
-        datetime.timedelta(seconds=dataset_chars / characters_per_second)
+    extrapolated_duration_cps_fmt = str(
+        datetime.timedelta(seconds=(n_chunks / down_scale) / chunks_per_sec)
     )
     resp = {
         "downscale": down_scale,
@@ -207,10 +198,10 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
         "n_gpu": N_GPU,
         "n_inputs": N_INPUTS,
         "duration": duration,
-        "characters_per_second": characters_per_second,
+        "batches_per_second": chunks_per_sec,
         "extrapolated_duration": extrapolated_duration,
         "extrapolated_duration_fmt": extrapolated_duration_fmt,
-        "extrapolated_duration_tps_fmt": extrapolated_duration_tps_fmt,
+        "extrapolated_duration_cps_fmt": extrapolated_duration_cps_fmt,
     }
 
     if PUSH_TO_HUB:
@@ -234,7 +225,7 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
 
 @stub.local_entrypoint()
 def main():
-    for scale, batch_size in product([0.01], [512]):
+    for scale, batch_size in product([0.001], [512]):
         with open("benchmarks.json", "a") as f:
             benchmark = embed_dataset.remote(down_scale=scale, batch_size=batch_size)
             print(json.dumps(benchmark, indent=2))
