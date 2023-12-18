@@ -45,42 +45,6 @@ train_dataset = train_test_split["train"]
 test_dataset = train_test_split["test"]
 
 
-def get_quora_examples(split):
-    """
-    Return a list of InputExample for quora dataset based on the split
-
-    :param split: dataset split
-    """
-    if split not in ["train", "test"]:
-        raise ValueError("split must be in [train, test]")
-
-    examples = []
-    dataset_split = train_test_split[split]
-    # for agility, train with smaller dataset
-    # TODO: for actual training use the full dataset
-    n_examples = dataset_split.num_rows // 500
-    # n_examples = dataset_split.num_rows
-
-    # make dataset only have positives pairs
-    for i in range(n_examples):
-        data = dataset_split[i]
-        text0 = data["questions"]["text"][0]
-        text1 = data["questions"]["text"][1]
-
-        if split == "train":
-            # since we are using MultipleNegativesRankingLoss, only add positive pairs
-            if data["is_duplicate"]:
-                examples.append(InputExample(texts=[text0, text1], label=1))
-                # if A is a duplicate of B, then B is a duplicate of A
-                examples.append(InputExample(texts=[text1, text0], label=1))
-        else:
-            examples.append(
-                InputExample(texts=[text0, text1], label=int(data["is_duplicate"]))
-            )
-
-    return examples
-
-
 @stub.function(
     image=image,
     gpu=GPU_CONFIG,
@@ -96,12 +60,21 @@ def finetune():
     """
     model = SentenceTransformer(model_id)
 
-    train_examples = get_quora_examples("train")
+    train_examples = []
+    for i in range(train_dataset.num_rows // 500):
+        text0 = train_dataset[i]["questions"]["text"][0]
+        text1 = train_dataset[i]["questions"]["text"][1]
+        is_duplicate = int(train_dataset[i]["is_duplicate"])
+        train_examples.append(InputExample(texts=[text0, text1], label=is_duplicate))
     train_dataloader = DataLoader(train_examples, shuffle=True, batch_size=64)
-    train_loss = losses.MultipleNegativesRankingLoss(model)
+    train_loss = losses.OnlineContrastiveLoss(model)
 
-    test_examples = get_quora_examples("test")
-
+    test_examples = []
+    for i in range(test_dataset.num_rows // 500):
+        text0 = test_dataset[i]["questions"]["text"][0]
+        text1 = test_dataset[i]["questions"]["text"][1]
+        is_duplicate = int(test_dataset[i]["is_duplicate"])
+        test_examples.append(InputExample(texts=[text0, text1], label=is_duplicate))
     evaluator = evaluation.BinaryClassificationEvaluator.from_input_examples(
         test_examples,
     )
@@ -111,7 +84,7 @@ def finetune():
     pre_train_eval = evaluator(model, output_path=str(VOL_MOUNT_PATH))
     print("pre train eval score:", pre_train_eval)
 
-    evaluator.csv_file = "binary_classification_evaluation"+ "_results.csv"
+    evaluator.csv_file = "binary_classification_evaluation" + "_results.csv"
     model.fit(
         train_objectives=[(train_dataloader, train_loss)],
         evaluator=evaluator,
@@ -121,7 +94,7 @@ def finetune():
         checkpoint_save_total_limit=5,
     )
 
-    evaluator.csv_file = "binary_classification_evaluation_post_train"+ "_results.csv"
+    evaluator.csv_file = "binary_classification_evaluation_post_train" + "_results.csv"
     post_train_eval = evaluator(model, output_path=str(VOL_MOUNT_PATH))
 
     print("post train eval score:", post_train_eval)
