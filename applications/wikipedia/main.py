@@ -1,17 +1,17 @@
 from itertools import product
 import json
+import asyncio
 import subprocess
 from pathlib import Path
 
 from modal import Image, Stub, Volume, gpu, method, Secret
 
 N_GPU = 100
-N_INPUTS = 40
 GPU_CONFIG = gpu.A10G()
 MODEL_ID = "BAAI/bge-small-en-v1.5"
 MODEL_SLUG = MODEL_ID.split("/")[-1]
 
-BATCH_SIZE = 256 * 3
+BATCH_SIZE = 512
 DOCKER_IMAGE = (
     "ghcr.io/huggingface/text-embeddings-inference:86-0.4.0"  # Ampere 86 for A10s.
     # "ghcr.io/huggingface/text-embeddings-inference:0.4.0" # Ampere 80 for A100s.
@@ -96,7 +96,7 @@ def generate_chunks_from_dataset(xs, chunk_size: int):
             )
 
 
-def generate_batches(xs, batch_size=50):
+def generate_batches(xs, batch_size):
     batch = []
     for x in xs:
         batch.append(x)
@@ -112,8 +112,6 @@ def generate_batches(xs, batch_size=50):
     image=tei_image,
     # Use up to 10 GPU containers at once.
     concurrency_limit=N_GPU,
-    # Allow each container to process up to 10 batches at once.
-    allow_concurrent_inputs=N_INPUTS,
     retries=3,
 )
 class TextEmbeddingsInference:
@@ -122,18 +120,27 @@ class TextEmbeddingsInference:
         from httpx import AsyncClient
 
         self.process = spawn_server()
-        self.client = AsyncClient(base_url="http://127.0.0.1:8000")
+        self.client = AsyncClient(base_url="http://127.0.0.1:8000", timeout=10)
 
     def __exit__(self, _exc_type, _exc_value, _traceback):
         self.process.terminate()
 
+    async def _embed(self, chunk_batch):
+        texts = [chunk[3] for chunk in chunk_batch]
+        res = await self.client.post("/embed", json={"inputs": texts})
+        return np.array(res.json())
+
     @method()
     async def embed(self, chunks):
         """Embeds a list of texts.  id, url, title, text = chunks[0]"""
-        texts = [chunk[3] for chunk in chunks]
-        res = await self.client.post("/embed", json={"inputs": texts})
-        embeddings = res.json()
-        return chunks, np.array(embeddings)
+
+        coros = [
+            self._embed(chunk_batch)
+            for chunk_batch in generate_batches(chunks, batch_size=BATCH_SIZE)
+        ]
+
+        embeddings = np.concatenate(await asyncio.gather(*coros))
+        return chunks, embeddings
 
 
 @stub.function(
@@ -142,7 +149,7 @@ class TextEmbeddingsInference:
     timeout=5000,
     secret=Secret.from_name("huggingface-credentials"),
 )
-def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
+def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
     from datasets import load_from_disk, load_dataset
     import pyarrow as pa
     import pyarrow.parquet as pq
@@ -196,7 +203,6 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
         "downscale": down_scale,
         "batch_size": batch_size,
         "n_gpu": N_GPU,
-        "n_inputs": N_INPUTS,
         "duration": duration,
         "batches_per_second": chunks_per_sec,
         "extrapolated_duration": extrapolated_duration,
@@ -225,7 +231,7 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 32):
 
 @stub.local_entrypoint()
 def main():
-    for scale, batch_size in product([0.001], [512]):
+    for scale, batch_size in product([0.001], [512 * 50]):
         with open("benchmarks.json", "a") as f:
             benchmark = embed_dataset.remote(down_scale=scale, batch_size=batch_size)
             print(json.dumps(benchmark, indent=2))

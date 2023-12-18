@@ -26,7 +26,7 @@ def list_all_files():
 
 # Set a really high timeout
 @stub.function(volumes={cache_dir: volume}, timeout=3000)
-def download_dataset(cache=False):
+def download_dataset(cache=True):
     # Redownload the dataset
     from datasets import load_dataset
     import time
