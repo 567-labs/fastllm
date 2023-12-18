@@ -4,6 +4,7 @@ from sentence_transformers import SentenceTransformer, InputExample, losses, eva
 import modal
 import pathlib
 from datetime import datetime
+import os
 
 model_id = "BAAI/bge-small-en-v1.5"
 dataset_id = "quora"
@@ -24,7 +25,9 @@ GPU_CONFIG = "A10G"
 
 
 # Modal resources
-volume = modal.Volume.persisted("sentence-transformers-ft")
+volume = modal.Volume.persisted(
+    f"sentence-transformers-ft-{int(datetime.now().timestamp())}"
+)
 stub = modal.Stub("finetune-embeddings")
 image = (
     modal.Image.debian_slim()
@@ -55,7 +58,7 @@ def get_quora_examples(split):
     dataset_split = train_test_split[split]
     # for agility, train with smaller dataset
     # TODO: for actual training use the full dataset
-    n_examples = dataset_split.num_rows // 2
+    n_examples = dataset_split.num_rows // 500
     # n_examples = dataset_split.num_rows
 
     # make dataset only have positives pairs
@@ -103,27 +106,23 @@ def finetune():
         test_examples,
     )
 
-    pre_train_eval = evaluator(
-        model, output_path=str(VOL_MOUNT_PATH / "pre-train")
-    )
+    # evaluator.name is used for how the file name is saved
+    evaluator.csv_file = "binary_classification_evaluation_pre_train" + "_results.csv"
+    pre_train_eval = evaluator(model, output_path=str(VOL_MOUNT_PATH))
     print("pre train eval score:", pre_train_eval)
 
+    evaluator.csv_file = "binary_classification_evaluation"+ "_results.csv"
     model.fit(
         train_objectives=[(train_dataloader, train_loss)],
         evaluator=evaluator,
         epochs=10,
-        output_path=str(
-            VOL_MOUNT_PATH
-            / f"{model_id.replace('/','--')}-ft-{datetime.now().timestamp()}"
-        ),
-        checkpoint_path=str(
-            VOL_MOUNT_PATH / f"checkpoints-{datetime.now().timestamp()}"
-        ),
+        output_path=str(VOL_MOUNT_PATH / f"{model_id.replace('/','--')}-ft"),
+        checkpoint_path=str(VOL_MOUNT_PATH / f"checkpoints"),
         checkpoint_save_total_limit=5,
     )
-    post_train_eval = evaluator(
-        model, output_path=str(VOL_MOUNT_PATH / "post-train")
-    )
+
+    evaluator.csv_file = "binary_classification_evaluation_post_train"+ "_results.csv"
+    post_train_eval = evaluator(model, output_path=str(VOL_MOUNT_PATH))
 
     print("post train eval score:", post_train_eval)
 
