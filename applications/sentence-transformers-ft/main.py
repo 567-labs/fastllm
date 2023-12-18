@@ -21,7 +21,7 @@ def download_dataset():
 
 # Modal constants
 VOL_MOUNT_PATH = pathlib.Path("/vol")
-GPU_CONFIG = "A10G"
+GPU_CONFIG = "a10g"
 
 
 # Modal resources
@@ -61,16 +61,16 @@ def finetune():
     model = SentenceTransformer(model_id)
 
     train_examples = []
-    for i in range(train_dataset.num_rows // 500):
+    for i in range(train_dataset.num_rows):
         text0 = train_dataset[i]["questions"]["text"][0]
         text1 = train_dataset[i]["questions"]["text"][1]
         is_duplicate = int(train_dataset[i]["is_duplicate"])
         train_examples.append(InputExample(texts=[text0, text1], label=is_duplicate))
-    train_dataloader = DataLoader(train_examples, shuffle=True, batch_size=64)
+    train_dataloader = DataLoader(train_examples, shuffle=True, batch_size=32)
     train_loss = losses.OnlineContrastiveLoss(model)
 
     test_examples = []
-    for i in range(test_dataset.num_rows // 500):
+    for i in range(test_dataset.num_rows):
         text0 = test_dataset[i]["questions"]["text"][0]
         text1 = test_dataset[i]["questions"]["text"][1]
         is_duplicate = int(test_dataset[i]["is_duplicate"])
