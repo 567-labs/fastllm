@@ -4,20 +4,9 @@ from sentence_transformers import SentenceTransformer, InputExample, losses, eva
 import modal
 import pathlib
 from datetime import datetime
-import os
 
 model_id = "BAAI/bge-small-en-v1.5"
 dataset_id = "quora"
-
-
-# Functions for Modal Image build step
-def download_model():
-    SentenceTransformer(model_id)
-
-
-def download_dataset():
-    load_dataset(dataset_id, split="train")
-
 
 # Modal constants
 VOL_MOUNT_PATH = pathlib.Path("/vol")
@@ -29,12 +18,8 @@ volume = modal.Volume.persisted(
     f"sentence-transformers-ft-{int(datetime.now().timestamp())}"
 )
 stub = modal.Stub("finetune-embeddings")
-image = (
-    modal.Image.debian_slim()
-    .pip_install("sentence-transformers", "torch", "datasets")
-    # we download the model and dataset to save them in the image in between runs
-    .run_function(download_model)
-    .run_function(download_dataset)
+image = modal.Image.debian_slim().pip_install(
+    "sentence-transformers", "torch", "datasets"
 )
 
 # Quora pairs dataset: https://huggingface.co/datasets/quora
