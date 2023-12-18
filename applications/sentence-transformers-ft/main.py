@@ -48,7 +48,6 @@ def get_quora_examples(split):
 
     :param split: dataset split
     """
-    # ms marco huggingface dataset: https://huggingface.co/datasets/ms_marco
     if split not in ["train", "test"]:
         raise ValueError("split must be in [train, test]")
 
@@ -56,7 +55,7 @@ def get_quora_examples(split):
     dataset_split = train_test_split[split]
     # for agility, train with smaller dataset
     # TODO: for actual training use the full dataset
-    n_examples = dataset_split.num_rows // 20
+    n_examples = dataset_split.num_rows // 2
     # n_examples = dataset_split.num_rows
 
     # make dataset only have positives pairs
@@ -101,11 +100,13 @@ def finetune():
     test_examples = get_quora_examples("test")
 
     evaluator = evaluation.BinaryClassificationEvaluator.from_input_examples(
-        test_examples
+        test_examples,
     )
 
-    pre_train_eval = evaluator.compute_metrices(model)
-    print("pre train eval", pre_train_eval)
+    pre_train_eval = evaluator(
+        model, output_path=str(VOL_MOUNT_PATH / "pre-train")
+    )
+    print("pre train eval score:", pre_train_eval)
 
     model.fit(
         train_objectives=[(train_dataloader, train_loss)],
@@ -120,10 +121,11 @@ def finetune():
         ),
         checkpoint_save_total_limit=5,
     )
+    post_train_eval = evaluator(
+        model, output_path=str(VOL_MOUNT_PATH / "post-train")
+    )
 
-    post_train_eval = evaluator.compute_metrices(model)
-
-    print("post train eval", post_train_eval)
+    print("post train eval score:", post_train_eval)
 
 
 # run on modal with `modal run main.py`
@@ -134,4 +136,5 @@ def main():
 
 # run on local with `python main.py`
 if __name__ == "__main__":
+    VOL_MOUNT_PATH = pathlib.Path("./")
     finetune.local()
