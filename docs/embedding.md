@@ -308,7 +308,7 @@ This allows us to run this entire script using the command
 modal run main.py
 ```
 
-Alternatively, if you'd like to run this as a cron job daily, you just need to modify the `@stub.function` decorator with the following parameters
+Alternatively, if you'd like to run this as a cron job daily, you just need to modify the `@stub.function` decorator to add in a `schedule` parameter. This can be modified to any arbitrary period that you'd like to use depending on your use case.
 
 ```python
 from modal import Period
@@ -326,6 +326,8 @@ We can then deploy this using the command
 ```bash
 modal deploy --name wikipedia-embedding main.py
 ```
+
+If you'd like to change the frequency, just change the schedule parameter, re-run the command and you're good to go. This makes it perfect for companies exploring to finetune their embeddings on a regular basis without having to worry about the underlying infrastructure. 
 
 ## Scaling Out
 
