@@ -38,9 +38,11 @@ def download_dataset():
 
 
 # Modal resources
-volume = modal.Volume.persisted(
-    f"sentence-transformers-ft-{int(datetime.now().timestamp())}"
-)
+# TODO: uncomment this to make the volume persisted
+# volume = modal.Volume.persisted(
+#     f"sentence-transformers-ft-{int(datetime.now().timestamp())}"
+# )
+volume = modal.Volume(f"sentence-transformers-ft-{int(datetime.now().timestamp())}")
 stub = modal.Stub("finetune-embeddings")
 image = (
     modal.Image.debian_slim()
@@ -57,17 +59,12 @@ train_dataset = train_test_split["train"]
 test_dataset = train_test_split["test"]
 
 
-@stub.function(
-    image=image,
-    gpu=GPU_CONFIG,
-    timeout=15000,
-    volumes={VOL_MOUNT_PATH: volume},
-    _allow_background_volume_commits=True,
-)
 def finetune():
     """
     Finetune a sentence transformer on the quora pairs dataset. Evaluates model performance before/after training
 
+    :returns: evaluation accuracy post training
+    :rtype: float
     Inspired by: https://github.com/UKPLab/sentence-transformers/blob/657da5fe23fe36058cbd9657aec6c7688260dd1f/examples/training/quora_duplicate_questions/training_MultipleNegativesRankingLoss.py
     """
     if USE_DENSE_LAYER:
@@ -120,14 +117,29 @@ def finetune():
 
     print("post train eval score:", post_train_eval)
 
+    return post_train_eval
+
+
+@stub.function(
+    image=image,
+    gpu=GPU_CONFIG,
+    timeout=15000,
+    volumes={VOL_MOUNT_PATH: volume},
+    _allow_background_volume_commits=True,
+)
+def finetune_modal():
+    # we call "finetune" as a separate function in order to reuse it in our optuna code
+    # otherwise, it would be more efficient to define the modal function directly on "finetune"
+    finetune()
+
 
 # run on modal with `modal run main.py`
 @stub.local_entrypoint()
 def main():
-    finetune.remote()
+    finetune_modal.remote()
 
 
 # run on local with `python main.py`
 if __name__ == "__main__":
     VOL_MOUNT_PATH = pathlib.Path("./")
-    finetune.local()
+    finetune()
