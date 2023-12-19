@@ -447,3 +447,19 @@
   "extrapolated_duration_fmt": "7:26:48",
   "extrapolated_duration_cps_fmt": "7:26:49.929353"
 }
+{
+  "downscale": 0.1,
+  "batch_size": 15360,
+  "n_gpu": 100,
+  "duration_mins": 4.175282489683334,
+  "characters_per_sec": 19324546,
+  "extrapolated_duration": "0:16:52.212083"
+}
+{
+  "downscale": 0.1,
+  "batch_size": 25600,
+  "n_gpu": 100,
+  "duration_mins": 3.794382765783331,
+  "characters_per_sec": 21264444,
+  "extrapolated_duration": "0:15:19.870699"
+}
