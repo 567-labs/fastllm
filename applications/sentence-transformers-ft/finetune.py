@@ -50,6 +50,7 @@ def finetune(
         model = SentenceTransformer(model_id)
 
     train_examples = []
+    # TODO: can make this more pythonic later by removing dataset_fraction
     for i in range(train_dataset.num_rows // dataset_fraction):
         text0 = train_dataset[i]["questions"]["text"][0]
         text1 = train_dataset[i]["questions"]["text"][1]
@@ -59,6 +60,7 @@ def finetune(
     train_loss = losses.OnlineContrastiveLoss(model)
 
     test_examples = []
+    # TODO: can make this more pythonic later by removing dataset_fraction
     for i in range(test_dataset.num_rows // dataset_fraction):
         text0 = test_dataset[i]["questions"]["text"][0]
         text1 = test_dataset[i]["questions"]["text"][1]
