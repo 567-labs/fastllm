@@ -1,4 +1,4 @@
-# Embedding Wikipedia under 30 minutes
+# Embedding All of Wikipedia under 2 hours
 
 Embedding hundreds of gigabytes of text data can be a daunting task, especially when limited to making batch requests to a remote API. This article explores how Modal can be used to efficiently embed the huggingface Simple English Wikipedia in under 30 minutes. By mounting the data into a Modal volume and running the embedding function in parallel across multiple GPUs, we can achieve this.
 
@@ -185,9 +185,9 @@ A modal class allows us to have more fine-grained control over the behaviour of 
 - What should we do when the container is called by other functions by defining  `@method` calls
 - What to do once the container is shut down using the `__exit__` 
 
-More specifically, in our case, we spawn a server once when the container boots up. This state is then preserved in preparation for future requests that other functions might make so that we only incur the cost of initialising a server once. All the guesswork of managing the life cycle is taken out of the equation for you with Modal by just over-writing two functions and using some decorators.
+More specifically, in our case, we spawn a server once when the container boots up. This state is then preserved in preparation for future requests that other functions might make so that we only incur the cost of initialising a server once. 
 
-Our class is also configured to have the necessary GPUs and image using the `stub.cls` parameters.
+All the guesswork of managing the life cycle is taken out of the equation for you with Modal by just defining two functions and using a single decorator. Not only so, we can configure our object to run with a specific image and an attached GPU by modifying the `stub.cls` parameters
 
 ```python
 from modal import gpu
@@ -196,26 +196,34 @@ GPU_CONFIG = gpu.A10G()
 
 @stub.cls(
     gpu=GPU_CONFIG,
-    image=tei_image,
+    image=tei_image, # This is defined above
 )
 class TextEmbeddingsInference:
     def __enter__(self):
-        # If the process is running for a long time, the client does not seem to close the connections, results in a pool timeout
         from httpx import AsyncClient
 
         self.process = spawn_server()
-        self.client = AsyncClient(base_url="http://127.0.0.1:8000")
+        self.client = AsyncClient(base_url="http://127.0.0.1:8000", timeout=10)
 
     def __exit__(self, _exc_type, _exc_value, _traceback):
         self.process.terminate()
 
+    async def _embed(self, chunk_batch):
+        texts = [chunk[3] for chunk in chunk_batch]
+        res = await self.client.post("/embed", json={"inputs": texts})
+        return np.array(res.json())
+
     @method()
     async def embed(self, chunks):
         """Embeds a list of texts.  id, url, title, text = chunks[0]"""
-        texts = [chunk[3] for chunk in chunks]
-        res = await self.client.post("/embed", json={"inputs": texts})
-        embeddings = res.json()
-        return chunks, np.array(embeddings)
+
+        coros = [
+            self._embed(chunk_batch)
+            for chunk_batch in generate_batches(chunks, batch_size=BATCH_SIZE)
+        ]
+
+        embeddings = np.concatenate(await asyncio.gather(*coros))
+        return chunks, embeddings.
 ```
 
 ### Generating Embeddings
@@ -331,27 +339,58 @@ If you'd like to change the frequency, just change the schedule parameter, re-ru
 
 ## Scaling Out
 
-Now that we've seen how to run a simple batch job using Modal, let's consider how we might modify our embedding function to bring our current timing of ~4 hours down.
+Now that we've seen how to run a simple batch job using Modal, let's consider how we might modify our embedding function to speed up the time taken. Currently if we run our script above, embedding all of wikipedia will take around 8 hours with a batch size of 512.
 
-Well, turns out we have two handy properties that we can adjust
+To do so, there are two things that we can do - increase the number of containers we're using and rewriting our `embed` function to take advantage of asynchronous processing within the container. Let's tackle them one by one and see what performance benefits we can get.
 
-- `concurrency_limit` : This is the number of containers that Modal is allowed to spawn concurrently to run a batch job
-- `allow_concurrent_inputs` : This is the number of inputs a container can handle at any given time
+### Increasing the Concurrency Limit
 
-All we really need to do then is to crank up the values of these two properties as seen below and we'll have 50 different containers each with their own A10g GPU processing 40 batches of inputs each at any given time. We suggest experimenting with these parameters to see what works best for your use-case
+Modal has a cap on the number of containers that processes ar allowed to spawn concurrently to run a batch job. In this case, when we use the `.map` function, we're limited to around 10 containers that we can use at any given time. This can be easily overwritten using the `concurrency_limit` parameter on our `stub.cls` object.
+
+All we really need to do is to then crank up the value of `concurrency_limit` to 50 and we'll have 50 different containers each wtih their own A10G GPU processing batches of text to be embedded. We suggest experimenting with these parameters to see what works best for your use case.
 
 ```python
 @stub.cls(
     gpu=GPU_CONFIG,
     image=tei_image,
     concurrency_limit=50, # Number of concurrent containers that can be spawned to handle the task
-    allow_concurrent_inputs=40, # Number of inputs each container can process and fetch at any given time
 )
 class TextEmbeddingsInference:
     # Rest Of Code below
 ```
 
-With these two new lines of code, we can cut down the time taken by almost 90%, from 4 hours to 30 minutes without any need for any complex optimisations or specialised code, just by using Modal's built in features.
+### Asynchronous Processing
+
+By handling multiple requests concurrently instead of sequentially, we can significantly improve the performance of our `embed` function, allowing us to reduce the time taken to perform the embeddings. This is done by using a `_embed` function to process each batch in parallel.
+
+```python
+async def _embed(self, chunk_batch):
+    texts = [chunk[3] for chunk in chunk_batch]
+    res = await self.client.post("/embed", json={"inputs": texts})
+    return np.array(res.json())
+```
+
+Each time we call this embed function, it sends the chunked batch to our Text Embedding Inference server. Once it gets a response, it will then start converting it to a json response. This means that while we're waiting for our server to process a batch of chunks, other tasks such as converting the returned embeddings to a numpy array can continue executing. 
+
+This helps us to reduce the amount of time that our program would spend idling waiting for the Text Embedding Inference server to finish processing all of the embeddings.  Since we need to have all of the embeddings on hand before, we're forced to use `asyncio.gather` here to wait for our server to finish computing all of the embeddings.
+
+```
+@method()
+async def embed(self, chunks):
+    """Embeds a list of texts.  id, url, title, text = chunks[0]"""
+
+    coros = [
+        self._embed(chunk_batch)
+        for chunk_batch in generate_batches(chunks, batch_size=BATCH_SIZE)
+    ]
+
+    embeddings = np.concatenate(await asyncio.gather(*coros))
+    return chunks, embeddings
+```
+
+By doing so, we can increase the batch size that each container can process by a lot - in our case, we can now process almost 25600 chunks per container at any given time, resulting in a **33x increase in the capacity of each container** from our original batch size of 768. 
+
+With these two optimisations, we can now process the entirety of Wikipedia in just under 2 hours, resulting in almost 80% decrease in time taken to process the entire job.
 
 # Conclusion
 
