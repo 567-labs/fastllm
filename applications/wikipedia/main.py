@@ -23,7 +23,7 @@ cache_dir = "/data"
 data_dir = f"{cache_dir}/{dataset_name}"
 DATA_PATH = Path(data_dir)
 
-PUSH_TO_HUB = True
+PUSH_TO_HUB = False
 dataset_name = f"567-labs/wikipedia-embedding-{MODEL_SLUG}-sample"
 dataset_file = "wiki-embeddings.paraquet"
 
@@ -192,22 +192,18 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
     end = time.perf_counter()
 
     duration = end - start
-    n_chunks = len(acc_chunks)
-    chunks_per_sec = int(n_chunks / duration)
-    extrapolated_duration = int(duration / down_scale)
-    extrapolated_duration_fmt = str(datetime.timedelta(seconds=extrapolated_duration))
+    characters = sum(map(len, [chunk[3] for chunk in acc_chunks]))
+    characters_per_sec = int(characters / duration)
     extrapolated_duration_cps_fmt = str(
-        datetime.timedelta(seconds=(n_chunks / down_scale) / chunks_per_sec)
+        datetime.timedelta(seconds=dataset_chars / characters_per_sec)
     )
     resp = {
         "downscale": down_scale,
         "batch_size": batch_size,
         "n_gpu": N_GPU,
-        "duration": duration,
-        "batches_per_second": chunks_per_sec,
-        "extrapolated_duration": extrapolated_duration,
-        "extrapolated_duration_fmt": extrapolated_duration_fmt,
-        "extrapolated_duration_cps_fmt": extrapolated_duration_cps_fmt,
+        "duration_mins": duration / 60,
+        "characters_per_sec": characters_per_sec,
+        "extrapolated_duration": extrapolated_duration_cps_fmt,
     }
 
     if PUSH_TO_HUB:
@@ -231,7 +227,7 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
 
 @stub.local_entrypoint()
 def main():
-    for scale, batch_size in product([0.001], [512 * 50]):
+    for scale, batch_size in product([0.1], [512 * 10, 512 * 30, 512 * 50]):
         with open("benchmarks.json", "a") as f:
             benchmark = embed_dataset.remote(down_scale=scale, batch_size=batch_size)
             print(json.dumps(benchmark, indent=2))
