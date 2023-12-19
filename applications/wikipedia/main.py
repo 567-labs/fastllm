@@ -3,6 +3,7 @@ import json
 import asyncio
 import subprocess
 from pathlib import Path
+import time
 
 from modal import Image, Stub, Volume, gpu, method, Secret
 
@@ -120,7 +121,7 @@ class TextEmbeddingsInference:
         from httpx import AsyncClient
 
         self.process = spawn_server()
-        self.client = AsyncClient(base_url="http://127.0.0.1:8000", timeout=10)
+        self.client = AsyncClient(base_url="http://127.0.0.1:8000", timeout=30)
 
     def __exit__(self, _exc_type, _exc_value, _traceback):
         self.process.terminate()
@@ -146,7 +147,7 @@ class TextEmbeddingsInference:
 @stub.function(
     image=Image.debian_slim().pip_install("datasets", "pyarrow", "tqdm"),
     volumes={cache_dir: volume},
-    timeout=5000,
+    timeout=84600,
     secret=Secret.from_name("huggingface-credentials"),
 )
 def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
