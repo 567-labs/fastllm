@@ -1,16 +1,40 @@
 from datasets import load_dataset
 from torch.utils.data import DataLoader
-from sentence_transformers import SentenceTransformer, InputExample, losses, evaluation
+from sentence_transformers import (
+    SentenceTransformer,
+    InputExample,
+    losses,
+    evaluation,
+    models,
+)
 import modal
 import pathlib
 from datetime import datetime
+from torch import nn
 
 model_id = "BAAI/bge-small-en-v1.5"
 dataset_id = "quora"
 
+# Hyperparameters
+EPOCHS = 10
+DATASET_FRACTION = 100
+USE_DENSE_LAYER = True
+DENSE_OUT_FEATURES = 64
+
+
 # Modal constants
 VOL_MOUNT_PATH = pathlib.Path("/vol")
 GPU_CONFIG = "a10g"
+
+
+# Functions for Modal Image build steps (cache the model and dataset)
+# NOTE: this can be removed for simplicity, this is currently here for faster devloop times when repeatedly running the function
+def download_model():
+    SentenceTransformer(model_id)
+
+
+def download_dataset():
+    load_dataset(dataset_id, split="train")
 
 
 # Modal resources
@@ -18,8 +42,11 @@ volume = modal.Volume.persisted(
     f"sentence-transformers-ft-{int(datetime.now().timestamp())}"
 )
 stub = modal.Stub("finetune-embeddings")
-image = modal.Image.debian_slim().pip_install(
-    "sentence-transformers", "torch", "datasets"
+image = (
+    modal.Image.debian_slim()
+    .pip_install("sentence-transformers", "torch", "datasets")
+    .run_function(download_model)
+    .run_function(download_dataset)
 )
 
 # Quora pairs dataset: https://huggingface.co/datasets/quora
@@ -43,19 +70,28 @@ def finetune():
 
     Inspired by: https://github.com/UKPLab/sentence-transformers/blob/657da5fe23fe36058cbd9657aec6c7688260dd1f/examples/training/quora_duplicate_questions/training_MultipleNegativesRankingLoss.py
     """
-    model = SentenceTransformer(model_id)
+    if USE_DENSE_LAYER:
+        embedding_model = SentenceTransformer(model_id)
+        dense_model = models.Dense(
+            in_features=embedding_model.get_sentence_embedding_dimension(),
+            out_features=DENSE_OUT_FEATURES,
+            activation_function=nn.Tanh(),
+        )
+        model = SentenceTransformer(modules=[embedding_model, dense_model])
+    else:
+        model = SentenceTransformer(model_id)
 
     train_examples = []
-    for i in range(train_dataset.num_rows):
+    for i in range(train_dataset.num_rows // DATASET_FRACTION):
         text0 = train_dataset[i]["questions"]["text"][0]
         text1 = train_dataset[i]["questions"]["text"][1]
         is_duplicate = int(train_dataset[i]["is_duplicate"])
         train_examples.append(InputExample(texts=[text0, text1], label=is_duplicate))
-    train_dataloader = DataLoader(train_examples, shuffle=True, batch_size=32)
+    train_dataloader = DataLoader(train_examples, shuffle=True, batch_size=64)
     train_loss = losses.OnlineContrastiveLoss(model)
 
     test_examples = []
-    for i in range(test_dataset.num_rows):
+    for i in range(test_dataset.num_rows // DATASET_FRACTION):
         text0 = test_dataset[i]["questions"]["text"][0]
         text1 = test_dataset[i]["questions"]["text"][1]
         is_duplicate = int(test_dataset[i]["is_duplicate"])
@@ -73,7 +109,7 @@ def finetune():
     model.fit(
         train_objectives=[(train_dataloader, train_loss)],
         evaluator=evaluator,
-        epochs=10,
+        epochs=EPOCHS,
         output_path=str(VOL_MOUNT_PATH / f"{model_id.replace('/','--')}-ft"),
         checkpoint_path=str(VOL_MOUNT_PATH / f"checkpoints"),
         checkpoint_save_total_limit=5,
