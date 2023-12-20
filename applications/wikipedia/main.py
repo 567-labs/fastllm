@@ -24,7 +24,7 @@ cache_dir = "/data"
 data_dir = f"{cache_dir}/{dataset_name}"
 DATA_PATH = Path(data_dir)
 
-PUSH_TO_HUB = False
+PUSH_TO_HUB = True
 dataset_name = f"567-labs/wikipedia-embedding-{MODEL_SLUG}-sample"
 dataset_file = "wiki-embeddings.parquet"
 
@@ -145,7 +145,7 @@ class TextEmbeddingsInference:
 
 
 @stub.function(
-    image=Image.debian_slim().pip_install("datasets", "pyarrow", "tqdm"),
+    image=Image.debian_slim().pip_install("datasets", "pyarrow", "tqdm", "hf_transfer"),
     volumes={cache_dir: volume},
     timeout=84600,
     secret=Secret.from_name("huggingface-credentials"),
@@ -186,7 +186,13 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
     start = time.perf_counter()
     acc_chunks = []
     embeddings = []
-    for batch_chunks, batch_embeddings in model.embed.map(batches, order_outputs=False):
+    for resp in model.embed.map(batches, order_outputs=False, return_exceptions=True):
+        if isinstance(resp, Exception):
+            print(f"Exception: {resp}")
+            continue
+
+        batch_chunks, batch_embeddings = resp
+
         acc_chunks.extend(batch_chunks)
         embeddings.extend(batch_embeddings)
 
@@ -207,29 +213,35 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
         "extrapolated_duration": extrapolated_duration_cps_fmt,
     }
 
+    print(json.dumps(resp, indent=2))
+
     if PUSH_TO_HUB:
-        print(f"Pushing to hub {dataset_name}")
-        table = pa.Table.from_arrays(
-            [
-                pa.array([chunk[0] for chunk in acc_chunks]),  # id
-                pa.array([chunk[1] for chunk in acc_chunks]),  # url
-                pa.array([chunk[2] for chunk in acc_chunks]),  # title
-                pa.array([chunk[3] for chunk in acc_chunks]),  # text
-                pa.array(embeddings),
-            ],
-            names=["id", "url", "title", "text", "embedding"],
-        )
-        pq.write_table(table, dataset_file)
-        dataset = load_dataset("parquet", data_files=dataset_file)
-        dataset.push_to_hub(dataset_name, token=os.environ["HUGGINGFACE_TOKEN"])
+        try:
+            print(f"Pushing to hub {dataset_name}")
+            table = pa.Table.from_arrays(
+                [
+                    pa.array([chunk[0] for chunk in acc_chunks]),  # id
+                    pa.array([chunk[1] for chunk in acc_chunks]),  # url
+                    pa.array([chunk[2] for chunk in acc_chunks]),  # title
+                    pa.array([chunk[3] for chunk in acc_chunks]),  # text
+                    pa.array(embeddings),
+                ],
+                names=["id", "url", "title", "text", "embedding"],
+            )
+            pq.write_table(table, dataset_file)
+            volumn.commit()
+            dataset = load_dataset("parquet", data_files=dataset_file)
+            dataset.push_to_hub(dataset_name, token=os.environ["HUGGINGFACE_TOKEN"])
+        except Exception as e:
+            print(e)
 
     return resp
 
 
 @stub.local_entrypoint()
 def main():
-    for scale, batch_size in product([0.25], [512 * 50]):
-        with open("benchmarks.json", "a") as f:
-            benchmark = embed_dataset.remote(down_scale=scale, batch_size=batch_size)
-            print(json.dumps(benchmark, indent=2))
-            f.write(json.dumps(benchmark, indent=2) + "\n")
+    scale = .25
+    batch_size = 512 * 150
+    with open("benchmarks.json", "a") as f:
+        benchmark = embed_dataset.remote(down_scale=scale, batch_size=batch_size)
+        f.write(json.dumps(benchmark, indent=2) + "\n")
