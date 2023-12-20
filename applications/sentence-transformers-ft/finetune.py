@@ -10,6 +10,7 @@ from sentence_transformers import (
 from torch import nn
 import pathlib
 from typing import Optional
+import os
 
 
 # TODO: refactor this to separate finetune from modal code.
@@ -73,6 +74,11 @@ def finetune(
         test_examples,
     )
 
+    # TODO: fix this idk
+
+    # TODO hack, make the directory if it doesn't exist already for optuna
+    if not os.path.exists(save_path):
+        os.mkdir(save_path)
     # evaluator.name is used for how the file name is saved
     evaluator.csv_file = "binary_classification_evaluation_pre_train" + "_results.csv"
     pre_train_eval = evaluator(model, output_path=str(save_path))
