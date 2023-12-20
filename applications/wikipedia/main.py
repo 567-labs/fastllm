@@ -78,7 +78,7 @@ tei_image = (
 )
 
 
-with tei_image.run_inside():
+with tei_image.imports():
     import numpy as np
 
 
