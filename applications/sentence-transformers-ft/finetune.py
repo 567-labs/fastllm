@@ -20,6 +20,7 @@ def finetune(
     model_id: str = "BAAI/bge-small-en-v1.5",
     epochs: int = 10,
     dataset_fraction: int = 1,
+    activation_function=nn.Tanh(), 
     dense_out_features: Optional[int] = None,
 ):
     """
@@ -45,7 +46,7 @@ def finetune(
         dense_model = models.Dense(
             in_features=embedding_model.get_sentence_embedding_dimension(),
             out_features=dense_out_features,
-            activation_function=nn.Tanh(),
+            activation_function=activation_function,
         )
         model = SentenceTransformer(modules=[embedding_model, dense_model])
     else:
