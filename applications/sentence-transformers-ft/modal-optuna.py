@@ -36,6 +36,7 @@ if USE_CACHED_IMAGE:
     image = image.run_function(download_model).run_function(download_dataset)
 
 
+# TODO: attach this to stub?
 nfs_volume = modal.NetworkFileSystem.new()
 JOURNAL_PATH = "/root/cache/journal.log"
 STUDY_NAME = "sentence-transformers-ft study"
@@ -70,6 +71,11 @@ def objective(trial: optuna.Trial):
     activation_function = getattr(torch.nn, activation_function_str)()
     epochs = trial.suggest_int("epochs", 7, 12, log=True)
 
+    scheduler = trial.suggest_categorical(
+        "scheduler", [
+            "warmupconstant", "warmuplinear", "warmupcosine"
+        ] 
+    )
     # TODO: add dropout, seems kinda annoying tho https://github.com/UKPLab/sentence-transformers/issues/677
 
     # TODO: add learning rate scheduler
@@ -77,9 +83,10 @@ def objective(trial: optuna.Trial):
         model_id=MODEL_ID,
         save_path=VOL_MOUNT_PATH / f"trial-{trial.number}",
         dense_out_features=dense_out_features,
-        epochs=8,
+        epochs=epochs,
         dataset_fraction=2,
         activation_function=activation_function,
+        scheduler=scheduler
     )
     return res
 

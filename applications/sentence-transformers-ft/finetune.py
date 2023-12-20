@@ -22,6 +22,7 @@ def finetune(
     epochs: int = 10,
     dataset_fraction: int = 1,
     activation_function=nn.Tanh(),
+    scheduler: str = "warmuplinear",
     dense_out_features: Optional[int] = None,
 ):
     """
@@ -92,6 +93,7 @@ def finetune(
         output_path=str(save_path / f"{model_id.replace('/','--')}-ft"),
         checkpoint_path=str(save_path / f"checkpoints"),
         checkpoint_save_total_limit=5,
+        scheduler=scheduler
     )
 
     evaluator.csv_file = "binary_classification_evaluation_post_train" + "_results.csv"
