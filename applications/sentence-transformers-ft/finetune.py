@@ -9,18 +9,18 @@ from sentence_transformers import (
 )
 from torch import nn
 import pathlib
+from typing import Optional
 
 
 # TODO: refactor this to separate finetune from modal code.
 # maybe initialize the dataset inside the function?
 # also maybe make the hyperparameters as parameters of the finetune function
 def finetune(
-    model_id: str,
     save_path: pathlib.Path,
+    model_id: str = "BAAI/bge-small-en-v1.5",
     epochs: int = 10,
     dataset_fraction: int = 1,
-    use_dense_layer: bool = True,
-    dense_out_features: int = 200,
+    dense_out_features: Optional[int] = None,
 ):
     """
     Finetune a sentence transformer on the quora pairs dataset. Evaluates model performance before/after training
@@ -30,6 +30,8 @@ def finetune(
     Inspired by: https://github.com/UKPLab/sentence-transformers/blob/657da5fe23fe36058cbd9657aec6c7688260dd1f/examples/training/quora_duplicate_questions/training_MultipleNegativesRankingLoss.py
     """
 
+    # TODO: handle if optuna saves to multiple checkpoints?
+
     # Quora pairs dataset: https://huggingface.co/datasets/quora
     DATASET_ID = "quora"
     dataset = load_dataset(DATASET_ID, split="train")
@@ -38,7 +40,7 @@ def finetune(
     train_dataset = train_test_split["train"]
     test_dataset = train_test_split["test"]
 
-    if use_dense_layer:
+    if dense_out_features:
         embedding_model = SentenceTransformer(model_id)
         dense_model = models.Dense(
             in_features=embedding_model.get_sentence_embedding_dimension(),
