@@ -26,7 +26,7 @@ DATA_PATH = Path(data_dir)
 
 PUSH_TO_HUB = False
 dataset_name = f"567-labs/wikipedia-embedding-{MODEL_SLUG}-sample"
-dataset_file = "wiki-embeddings.paraquet"
+dataset_file = "wiki-embeddings.parquet"
 
 LAUNCH_FLAGS = [
     "--model-id",
@@ -228,7 +228,7 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
 
 @stub.local_entrypoint()
 def main():
-    for scale, batch_size in product([0.1], [512 * 100, 512 * 200]):
+    for scale, batch_size in product([0.25], [512 * 50]):
         with open("benchmarks.json", "a") as f:
             benchmark = embed_dataset.remote(down_scale=scale, batch_size=batch_size)
             print(json.dumps(benchmark, indent=2))
