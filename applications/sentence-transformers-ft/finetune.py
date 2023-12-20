@@ -17,10 +17,10 @@ from typing import Optional
 # also maybe make the hyperparameters as parameters of the finetune function
 def finetune(
     save_path: pathlib.Path,
-    model_id: str = "BAAI/bge-small-en-v1.5",
+    model_id: str = "BAAI/bge-small-en-v1.5",  # Huggingface Sentence Transformers model ID
     epochs: int = 10,
     dataset_fraction: int = 1,
-    activation_function=nn.Tanh(), 
+    activation_function=nn.Tanh(),
     dense_out_features: Optional[int] = None,
 ):
     """
@@ -98,9 +98,8 @@ def finetune(
 
 # run on local with `python main.py`
 if __name__ == "__main__":
-    model_id = "BAAI/bge-small-en-v1.5"
-
-    dataset_fraction = 1000
-
-    save_path = pathlib.Path("./")
-    finetune(model_id=model_id, save_path=save_path, dataset_fraction=dataset_fraction)
+    finetune(
+        model_id="BAAI/bge-small-en-v1.5",
+        save_path=pathlib.Path("./"),
+        dataset_fraction=1000,
+    )
