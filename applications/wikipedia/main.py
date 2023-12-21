@@ -145,7 +145,9 @@ class TextEmbeddingsInference:
 
 
 @stub.function(
-    image=Image.debian_slim().pip_install("datasets", "pyarrow", "tqdm", "hf_transfer"),
+    image=Image.debian_slim().pip_install(
+        "datasets", "pyarrow", "tqdm", "hf_transfer", "huggingface_hub"
+    ),
     volumes={cache_dir: volume},
     timeout=84600,
     secret=Secret.from_name("huggingface-credentials"),
@@ -229,9 +231,20 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
                 names=["id", "url", "title", "text", "embedding"],
             )
             pq.write_table(table, dataset_file)
-            volumn.commit()
-            dataset = load_dataset("parquet", data_files=dataset_file)
-            dataset.push_to_hub(dataset_name, token=os.environ["HUGGINGFACE_TOKEN"])
+
+            print(f"Uploading to hub {dataset_name}")
+            from huggingface_hub import HfApi, logging
+
+            logging.set_verbosity_debug()
+            hf = HfApi()
+            # ! This is not working but should be
+            hf.upload_file(
+                path_or_fileobj=dataset_file,
+                path_in_repo=dataset_file,
+                repo_id="jxnlco/modal-wikipedia",
+                repo_type="dataset",
+            )
+
         except Exception as e:
             print(e)
 
@@ -240,7 +253,7 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
 
 @stub.local_entrypoint()
 def main():
-    scale = .25
+    scale = 0.01
     batch_size = 512 * 150
     with open("benchmarks.json", "a") as f:
         benchmark = embed_dataset.remote(down_scale=scale, batch_size=batch_size)
