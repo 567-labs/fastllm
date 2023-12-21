@@ -1,4 +1,4 @@
-# Embedding All of Wikipedia under 2 hours
+# Embedding All of Wikipedia under 15 minutes
 
 Embedding hundreds of gigabytes of text data can be a daunting task, especially when limited to making batch requests to a remote API. This article explores how Modal can be used to efficiently embed the huggingface Simple English Wikipedia in under 30 minutes. By mounting the data into a Modal volume and running the embedding function in parallel across multiple GPUs, we can achieve this.
 
