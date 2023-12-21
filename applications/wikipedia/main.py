@@ -6,7 +6,7 @@ from pathlib import Path
 
 from modal import Image, Stub, Volume, gpu, method, Secret
 
-N_GPU = 50
+N_GPU = 100
 GPU_CONFIG = gpu.A10G()
 
 MODEL_CONFIG = {
@@ -17,12 +17,17 @@ MODEL_CONFIG = {
     },
     "BAAI/bge-small-en-v1.5": {
         "batch_size": 512,
-        "token_window": 512,
+        "token_window": 400,
         "slug": "bge-small-en-v1.5",
+    },
+    "BAAI/bge-base-en-v1.5": {
+        "batch_size": 256,
+        "token_window": 400,
+        "slug": "bge-base-en-v1.5",
     },
 }
 
-MODEL_ID = "jinaai/jina-embeddings-v2-small-en"
+MODEL_ID = "BAAI/bge-small-en-v1.5"
 BATCH_SIZE = MODEL_CONFIG[MODEL_ID]["batch_size"]
 TOKEN_WINDOW = MODEL_CONFIG[MODEL_ID]["token_window"]
 MODEL_SLUG = MODEL_CONFIG[MODEL_ID]["slug"]
@@ -37,7 +42,7 @@ cache_dir = "/data"
 data_dir = f"{cache_dir}/{dataset_name}"
 DATA_PATH = Path(data_dir)
 
-SAVE_TO_DISK = False
+SAVE_TO_DISK = True
 dataset_name = f"567-labs/wikipedia-embedding-{MODEL_SLUG}-five-percent"
 dataset_file = f"wiki-embeddings-{MODEL_SLUG}.parquet"
 
@@ -257,7 +262,7 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
 
 @stub.local_entrypoint()
 def main():
-    for scale, batch_size in product([0.01], [BATCH_SIZE * 50]):
+    for scale, batch_size in product([0.05], [BATCH_SIZE * 10]):
         with open("benchmarks.json", "a") as f:
             benchmark = embed_dataset.remote(down_scale=scale, batch_size=batch_size)
             print(json.dumps(benchmark, indent=2))
