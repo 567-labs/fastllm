@@ -149,6 +149,7 @@ class TextEmbeddingsInference:
         "datasets", "pyarrow", "tqdm", "hf_transfer", "huggingface_hub"
     ),
     volumes={cache_dir: volume},
+    _allow_background_volume_commits=True,
     timeout=84600,
     secret=Secret.from_name("huggingface-credentials"),
 )
@@ -231,20 +232,8 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
                 names=["id", "url", "title", "text", "embedding"],
             )
             pq.write_table(table, dataset_file)
-
-            print(f"Uploading to hub {dataset_name}")
-            from huggingface_hub import HfApi, logging
-
-            logging.set_verbosity_debug()
-            hf = HfApi()
-            # ! This is not working but should be
-            hf.upload_file(
-                path_or_fileobj=dataset_file,
-                path_in_repo=dataset_file,
-                repo_id="jxnlco/modal-wikipedia",
-                repo_type="dataset",
-            )
-
+            # This is now saved to the volume, so we can just push the volume.
+            # and upload the dataset to the hub in a separate step.
         except Exception as e:
             print(e)
 
@@ -253,7 +242,7 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
 
 @stub.local_entrypoint()
 def main():
-    scale = 0.01
+    scale = 0.10
     batch_size = 512 * 150
     with open("benchmarks.json", "a") as f:
         benchmark = embed_dataset.remote(down_scale=scale, batch_size=batch_size)
