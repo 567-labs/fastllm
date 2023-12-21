@@ -583,3 +583,14 @@
   "characters_per_sec": 21734383,
   "extrapolated_duration": "0:14:59.981332"
 }
+{
+  "downscale": 0.05,
+  "batch_size": 80,
+  "n_gpu": 100,
+  "duration_mins": 2.2918854606833334,
+  "characters_per_sec": 28454999,
+  "extrapolated_duration": "0:11:27.420125",
+  "model": "jinaai/jina-embeddings-v2-small-en",
+  "model_batch_size": 8,
+  "model_token_window": 6000
+}

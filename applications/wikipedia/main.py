@@ -3,16 +3,34 @@ import json
 import asyncio
 import subprocess
 from pathlib import Path
-import time
 
 from modal import Image, Stub, Volume, gpu, method, Secret
 
 N_GPU = 100
 GPU_CONFIG = gpu.A10G()
-MODEL_ID = "BAAI/bge-small-en-v1.5"
-MODEL_SLUG = MODEL_ID.split("/")[-1]
 
-BATCH_SIZE = 512
+MODEL_CONFIG = {
+    "jinaai/jina-embeddings-v2-small-en": {
+        "batch_size": 8,
+        "token_window": 6000,
+        "slug": "jina-embeddings-v2-small-en",
+    },
+    "BAAI/bge-small-en-v1.5": {
+        "batch_size": 512,
+        "token_window": 400,
+        "slug": "bge-small-en-v1.5",
+    },
+    "BAAI/bge-base-en-v1.5": {
+        "batch_size": 256,
+        "token_window": 400,
+        "slug": "bge-base-en-v1.5",
+    },
+}
+
+MODEL_ID = "BAAI/bge-small-en-v1.5"
+BATCH_SIZE = MODEL_CONFIG[MODEL_ID]["batch_size"]
+TOKEN_WINDOW = MODEL_CONFIG[MODEL_ID]["token_window"]
+MODEL_SLUG = MODEL_CONFIG[MODEL_ID]["slug"]
 DOCKER_IMAGE = (
     "ghcr.io/huggingface/text-embeddings-inference:86-0.4.0"  # Ampere 86 for A10s.
     # "ghcr.io/huggingface/text-embeddings-inference:0.4.0" # Ampere 80 for A100s.
@@ -25,8 +43,8 @@ data_dir = f"{cache_dir}/{dataset_name}"
 DATA_PATH = Path(data_dir)
 
 SAVE_TO_DISK = True
-dataset_name = f"567-labs/wikipedia-embedding-{MODEL_SLUG}-sample"
-dataset_file = "wiki-embeddings.parquet"
+dataset_name = f"567-labs/wikipedia-embedding-{MODEL_SLUG}-five-percent"
+dataset_file = f"wiki-embeddings-{MODEL_SLUG}.parquet"
 
 LAUNCH_FLAGS = [
     "--model-id",
@@ -36,7 +54,7 @@ LAUNCH_FLAGS = [
     "--max-client-batch-size",
     str(BATCH_SIZE),
     "--max-batch-tokens",
-    str(BATCH_SIZE * 512),
+    str(TOKEN_WINDOW * BATCH_SIZE),
 ]
 
 
@@ -82,13 +100,13 @@ with tei_image.imports():
     import numpy as np
 
 
-def generate_chunks_from_dataset(xs, chunk_size: int):
+def generate_chunks_from_dataset(xs, chunk_size: int = 3000, step: int = 1500):
     for data in xs:
         id_ = data["id"]
         url = data["url"]
         title = data["title"]
         text = data["text"]
-        for chunk_start in range(0, len(text), chunk_size):
+        for chunk_start in range(0, len(text) - chunk_size + 1, step):
             yield (
                 id_,
                 url,
@@ -183,7 +201,9 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
 
     print(f"Working with {sample_size} rows")
 
-    text_chunks = generate_chunks_from_dataset(subset, chunk_size=512)
+    text_chunks = generate_chunks_from_dataset(
+        subset, chunk_size=TOKEN_WINDOW, step=TOKEN_WINDOW // 2
+    )
     batches = generate_batches(text_chunks, batch_size=batch_size)
 
     start = time.perf_counter()
@@ -214,6 +234,9 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
         "duration_mins": duration / 60,
         "characters_per_sec": characters_per_sec,
         "extrapolated_duration": extrapolated_duration_cps_fmt,
+        "model": MODEL_ID,
+        "model_batch_size": BATCH_SIZE,
+        "model_token_window": TOKEN_WINDOW,
     }
 
     print(json.dumps(resp, indent=2))
@@ -232,15 +255,15 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
         )
         print(f"Saving to disk at {cache_dir}/{dataset_file}")
         pq.write_table(table, f"{cache_dir}/{dataset_file}")
-        volume.commit()
-
+        dataset = load_dataset("parquet", data_files=f"{cache_dir}/{dataset_file}")
+        dataset.push_to_hub(dataset_name, token=os.environ["HUGGINGFACE_TOKEN"])
     return resp
 
 
 @stub.local_entrypoint()
 def main():
-    scale = 0.01
-    batch_size = 512 * 150
-    with open("benchmarks.json", "a") as f:
-        benchmark = embed_dataset.remote(down_scale=scale, batch_size=batch_size)
-        f.write(json.dumps(benchmark, indent=2) + "\n")
+    for scale, batch_size in product([0.05], [BATCH_SIZE * 10]):
+        with open("benchmarks.json", "a") as f:
+            benchmark = embed_dataset.remote(down_scale=scale, batch_size=batch_size)
+            print(json.dumps(benchmark, indent=2))
+            f.write(json.dumps(benchmark, indent=2) + "\n")
