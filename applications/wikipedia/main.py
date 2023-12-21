@@ -24,7 +24,7 @@ cache_dir = "/data"
 data_dir = f"{cache_dir}/{dataset_name}"
 DATA_PATH = Path(data_dir)
 
-PUSH_TO_HUB = True
+SAVE_TO_DISK = True
 dataset_name = f"567-labs/wikipedia-embedding-{MODEL_SLUG}-sample"
 dataset_file = "wiki-embeddings.parquet"
 
@@ -218,25 +218,20 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
 
     print(json.dumps(resp, indent=2))
 
-    if PUSH_TO_HUB:
-        try:
-            print(f"Pushing to hub {dataset_name}")
-            table = pa.Table.from_arrays(
-                [
-                    pa.array([chunk[0] for chunk in acc_chunks]),  # id
-                    pa.array([chunk[1] for chunk in acc_chunks]),  # url
-                    pa.array([chunk[2] for chunk in acc_chunks]),  # title
-                    pa.array([chunk[3] for chunk in acc_chunks]),  # text
-                    pa.array(embeddings),
-                ],
-                names=["id", "url", "title", "text", "embedding"],
-            )
-            pq.write_table(table, f"{cache_dir}/{dataset_file}")
-            # This is now saved to the volume, so we can just push the volume.
-            # and upload the dataset to the hub in a separate step.
-
-        except Exception as e:
-            print(e)
+    if SAVE_TO_DISK:
+        print(f"Creating parquet table...")
+        table = pa.Table.from_arrays(
+            [
+                pa.array([chunk[0] for chunk in acc_chunks]),  # id
+                pa.array([chunk[1] for chunk in acc_chunks]),  # url
+                pa.array([chunk[2] for chunk in acc_chunks]),  # title
+                pa.array([chunk[3] for chunk in acc_chunks]),  # text
+                pa.array(embeddings),
+            ],
+            names=["id", "url", "title", "text", "embedding"],
+        )
+        print(f"Saving to disk at {cache_dir}/{dataset_file}")
+        pq.write_table(table, f"{cache_dir}/{dataset_file}")
 
     return resp
 
