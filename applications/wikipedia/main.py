@@ -82,13 +82,13 @@ with tei_image.imports():
     import numpy as np
 
 
-def generate_chunks_from_dataset(xs, chunk_size: int):
+def generate_chunks_from_dataset(xs, chunk_size: int = 512, step: int = 100):
     for data in xs:
         id_ = data["id"]
         url = data["url"]
         title = data["title"]
         text = data["text"]
-        for chunk_start in range(0, len(text), chunk_size):
+        for chunk_start in range(0, len(text) - chunk_size + 1, step):
             yield (
                 id_,
                 url,
