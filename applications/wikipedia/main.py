@@ -24,7 +24,7 @@ cache_dir = "/data"
 data_dir = f"{cache_dir}/{dataset_name}"
 DATA_PATH = Path(data_dir)
 
-PUSH_TO_HUB = False
+SAVE_TO_DISK = True
 dataset_name = f"567-labs/wikipedia-embedding-{MODEL_SLUG}-sample"
 dataset_file = "wiki-embeddings.parquet"
 
@@ -145,8 +145,11 @@ class TextEmbeddingsInference:
 
 
 @stub.function(
-    image=Image.debian_slim().pip_install("datasets", "pyarrow", "tqdm"),
+    image=Image.debian_slim().pip_install(
+        "datasets", "pyarrow", "tqdm", "hf_transfer", "huggingface_hub"
+    ),
     volumes={cache_dir: volume},
+    _allow_background_volume_commits=True,
     timeout=84600,
     secret=Secret.from_name("huggingface-credentials"),
 )
@@ -186,7 +189,13 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
     start = time.perf_counter()
     acc_chunks = []
     embeddings = []
-    for batch_chunks, batch_embeddings in model.embed.map(batches, order_outputs=False):
+    for resp in model.embed.map(batches, order_outputs=False, return_exceptions=True):
+        if isinstance(resp, Exception):
+            print(f"Exception: {resp}")
+            continue
+
+        batch_chunks, batch_embeddings = resp
+
         acc_chunks.extend(batch_chunks)
         embeddings.extend(batch_embeddings)
 
@@ -207,8 +216,10 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
         "extrapolated_duration": extrapolated_duration_cps_fmt,
     }
 
-    if PUSH_TO_HUB:
-        print(f"Pushing to hub {dataset_name}")
+    print(json.dumps(resp, indent=2))
+
+    if SAVE_TO_DISK:
+        print(f"Creating parquet table...")
         table = pa.Table.from_arrays(
             [
                 pa.array([chunk[0] for chunk in acc_chunks]),  # id
@@ -219,9 +230,9 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
             ],
             names=["id", "url", "title", "text", "embedding"],
         )
-        pq.write_table(table, dataset_file)
-        dataset = load_dataset("parquet", data_files=dataset_file)
-        dataset.push_to_hub(dataset_name, token=os.environ["HUGGINGFACE_TOKEN"])
+        print(f"Saving to disk at {cache_dir}/{dataset_file}")
+        pq.write_table(table, f"{cache_dir}/{dataset_file}")
+        volume.commit()
 
     return resp
 
