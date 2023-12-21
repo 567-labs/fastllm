@@ -8,11 +8,24 @@ from modal import Image, Stub, Volume, gpu, method, Secret
 
 N_GPU = 50
 GPU_CONFIG = gpu.A10G()
-MODEL_ID = "jinaai/jina-embeddings-v2-small-en"
-MODEL_SLUG = MODEL_ID.split("/")[-1]
 
-BATCH_SIZE = 16
-TOKEN_WINDOW = 4000  # characters not tokens
+MODEL_CONFIG = {
+    "jinaai/jina-embeddings-v2-small-en": {
+        "batch_size": 8,
+        "token_window": 6000,
+        "slug": "jina-embeddings-v2-small-en",
+    },
+    "BAAI/bge-small-en-v1.5": {
+        "batch_size": 512,
+        "token_window": 512,
+        "slug": "bge-small-en-v1.5",
+    },
+}
+
+MODEL_ID = "jinaai/jina-embeddings-v2-small-en"
+BATCH_SIZE = MODEL_CONFIG[MODEL_ID]["batch_size"]
+TOKEN_WINDOW = MODEL_CONFIG[MODEL_ID]["token_window"]
+MODEL_SLUG = MODEL_CONFIG[MODEL_ID]["slug"]
 DOCKER_IMAGE = (
     "ghcr.io/huggingface/text-embeddings-inference:86-0.4.0"  # Ampere 86 for A10s.
     # "ghcr.io/huggingface/text-embeddings-inference:0.4.0" # Ampere 80 for A100s.
@@ -24,9 +37,9 @@ cache_dir = "/data"
 data_dir = f"{cache_dir}/{dataset_name}"
 DATA_PATH = Path(data_dir)
 
-SAVE_TO_DISK = True
-dataset_name = f"567-labs/wikipedia-embedding-{MODEL_SLUG}-sample"
-dataset_file = "wiki-embeddings.parquet"
+SAVE_TO_DISK = False
+dataset_name = f"567-labs/wikipedia-embedding-{MODEL_SLUG}-five-percent"
+dataset_file = f"wiki-embeddings-{MODEL_SLUG}.parquet"
 
 LAUNCH_FLAGS = [
     "--model-id",
@@ -183,7 +196,9 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
 
     print(f"Working with {sample_size} rows")
 
-    text_chunks = generate_chunks_from_dataset(subset, chunk_size=TOKEN_WINDOW)
+    text_chunks = generate_chunks_from_dataset(
+        subset, chunk_size=TOKEN_WINDOW, step=TOKEN_WINDOW // 2
+    )
     batches = generate_batches(text_chunks, batch_size=batch_size)
 
     start = time.perf_counter()
@@ -214,6 +229,9 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
         "duration_mins": duration / 60,
         "characters_per_sec": characters_per_sec,
         "extrapolated_duration": extrapolated_duration_cps_fmt,
+        "model": MODEL_ID,
+        "model_batch_size": BATCH_SIZE,
+        "model_token_window": TOKEN_WINDOW,
     }
 
     print(json.dumps(resp, indent=2))
@@ -232,8 +250,8 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
         )
         print(f"Saving to disk at {cache_dir}/{dataset_file}")
         pq.write_table(table, f"{cache_dir}/{dataset_file}")
-        volume.commit()
-
+        dataset = load_dataset("parquet", data_files=f"{cache_dir}/{dataset_file}")
+        dataset.push_to_hub(dataset_name, token=os.environ["HUGGINGFACE_TOKEN"])
     return resp
 
 
