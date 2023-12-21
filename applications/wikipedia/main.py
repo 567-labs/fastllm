@@ -3,16 +3,16 @@ import json
 import asyncio
 import subprocess
 from pathlib import Path
-import time
 
 from modal import Image, Stub, Volume, gpu, method, Secret
 
-N_GPU = 100
+N_GPU = 50
 GPU_CONFIG = gpu.A10G()
-MODEL_ID = "BAAI/bge-small-en-v1.5"
+MODEL_ID = "jinaai/jina-embeddings-v2-small-en"
 MODEL_SLUG = MODEL_ID.split("/")[-1]
 
-BATCH_SIZE = 512
+BATCH_SIZE = 16
+TOKEN_WINDOW = 4000  # characters not tokens
 DOCKER_IMAGE = (
     "ghcr.io/huggingface/text-embeddings-inference:86-0.4.0"  # Ampere 86 for A10s.
     # "ghcr.io/huggingface/text-embeddings-inference:0.4.0" # Ampere 80 for A100s.
@@ -36,7 +36,7 @@ LAUNCH_FLAGS = [
     "--max-client-batch-size",
     str(BATCH_SIZE),
     "--max-batch-tokens",
-    str(BATCH_SIZE * 512),
+    str(TOKEN_WINDOW * BATCH_SIZE),
 ]
 
 
@@ -82,7 +82,7 @@ with tei_image.imports():
     import numpy as np
 
 
-def generate_chunks_from_dataset(xs, chunk_size: int = 512, step: int = 100):
+def generate_chunks_from_dataset(xs, chunk_size: int = 3000, step: int = 1500):
     for data in xs:
         id_ = data["id"]
         url = data["url"]
@@ -180,7 +180,7 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
 
     print(f"Working with {sample_size} rows")
 
-    text_chunks = generate_chunks_from_dataset(subset, chunk_size=512)
+    text_chunks = generate_chunks_from_dataset(subset, chunk_size=TOKEN_WINDOW)
     batches = generate_batches(text_chunks, batch_size=batch_size)
 
     start = time.perf_counter()
@@ -228,7 +228,7 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
 
 @stub.local_entrypoint()
 def main():
-    for scale, batch_size in product([0.25], [512 * 50]):
+    for scale, batch_size in product([0.01], [BATCH_SIZE * 50]):
         with open("benchmarks.json", "a") as f:
             benchmark = embed_dataset.remote(down_scale=scale, batch_size=batch_size)
             print(json.dumps(benchmark, indent=2))
