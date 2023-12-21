@@ -51,9 +51,15 @@ def check_dataset_exists():
     print(dataset)  # Print out a quick summary of the dataset
     print("Dataset loaded.")
 
+    # Now try to save to disk
+    with open(f"{cache_dir}/new_text_file.txt", "w") as file:
+        file.write("abcdef")
+    
+    del dataset
+    volume.commit()
 
 @stub.local_entrypoint()
 def main():
     # list_all_files.remote()
-    download_dataset.remote()
-    # check_dataset_exists.remote()
+    # download_dataset.remote()
+    check_dataset_exists.remote()

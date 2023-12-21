@@ -25,7 +25,7 @@ data_dir = f"{cache_dir}/{dataset_name}"
 DATA_PATH = Path(data_dir)
 
 SAVE_TO_DISK = True
-dataset_name = f"567-labs/wikipedia-embedding-{MODEL_SLUG}-sample"
+dataset_name = f"567-labs/wikipedia-embedding-{MODEL_SLUG}-debug"
 dataset_file = "wiki-embeddings.parquet"
 
 LAUNCH_FLAGS = [
@@ -78,8 +78,8 @@ tei_image = (
 )
 
 
-with tei_image.imports():
-    import numpy as np
+
+    
 
 
 def generate_chunks_from_dataset(xs, chunk_size: int):
@@ -127,6 +127,7 @@ class TextEmbeddingsInference:
         self.process.terminate()
 
     async def _embed(self, chunk_batch):
+        import numpy as np
         texts = [chunk[3] for chunk in chunk_batch]
         res = await self.client.post("/embed", json={"inputs": texts})
         return np.array(res.json())
@@ -134,7 +135,7 @@ class TextEmbeddingsInference:
     @method()
     async def embed(self, chunks):
         """Embeds a list of texts.  id, url, title, text = chunks[0]"""
-
+        import numpy as np
         coros = [
             self._embed(chunk_batch)
             for chunk_batch in generate_batches(chunks, batch_size=BATCH_SIZE)
@@ -230,16 +231,25 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
             ],
             names=["id", "url", "title", "text", "embedding"],
         )
-        print(f"Saving to disk at {cache_dir}/{dataset_file}")
-        pq.write_table(table, f"{cache_dir}/{dataset_file}")
-        volume.commit()
+        checkpoint_dir = f"{cache_dir}/checkpoints"
+        path = f"{checkpoint_dir}/{dataset_file}"
+        print(f"Saving to disk at {path}")
+        os.makedirs(checkpoint_dir,exist_ok=True)
+        pq.write_table(table, path)
+        del dataset
+        for _ in range(3):
+            try:
+                volume.commit()
+            except Exception as e:
+                print("Encountered Exception when trying to commit ... sleeping for 3s")
+                time.sleep(3)
 
     return resp
 
 
 @stub.local_entrypoint()
 def main():
-    scale = 0.01
+    scale = 0.001
     batch_size = 512 * 150
     with open("benchmarks.json", "a") as f:
         benchmark = embed_dataset.remote(down_scale=scale, batch_size=batch_size)
