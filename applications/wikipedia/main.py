@@ -231,9 +231,10 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
                 ],
                 names=["id", "url", "title", "text", "embedding"],
             )
-            pq.write_table(table, dataset_file)
+            pq.write_table(table, f"{cache_dir}/{dataset_file}")
             # This is now saved to the volume, so we can just push the volume.
             # and upload the dataset to the hub in a separate step.
+
         except Exception as e:
             print(e)
 
