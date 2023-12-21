@@ -38,7 +38,7 @@ def upload_dataset():
     import os
 
     print(f"Pushing to hub {dataset_name}")
-    dataset = load_dataset("parquet", data_files=dataset_file)
+    dataset = load_dataset("parquet", data_files=f"{cache_dir}/{dataset_file}")
     dataset.push_to_hub(dataset_name, token=os.environ["HUGGINGFACE_TOKEN"])
 
 

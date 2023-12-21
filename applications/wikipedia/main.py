@@ -232,13 +232,14 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
         )
         print(f"Saving to disk at {cache_dir}/{dataset_file}")
         pq.write_table(table, f"{cache_dir}/{dataset_file}")
+        volume.commit()
 
     return resp
 
 
 @stub.local_entrypoint()
 def main():
-    scale = 0.10
+    scale = 0.01
     batch_size = 512 * 150
     with open("benchmarks.json", "a") as f:
         benchmark = embed_dataset.remote(down_scale=scale, batch_size=batch_size)
