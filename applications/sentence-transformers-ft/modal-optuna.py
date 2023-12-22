@@ -62,23 +62,25 @@ def initialize_optuna():
 
 def objective(trial: optuna.Trial):
     # TODO: set more interesting hyperparameter searches
+    # 1/3 to double embedding count
+    # TODO: Disable log
     dense_out_features = trial.suggest_int(
-        "dense_out_features", 200, 800, log=True
+        "dense_out_features", 200, 800
     )  # TODO: Need to also somehow suggest "None" for running without dense layer, or this could just be manually set by user in the script
+    # NOTE: dense_out_features seem to have no effect
     activation_function_str = trial.suggest_categorical(
         "activation", ["Tanh", "ReLU", "Sigmoid"]
     )
+    # NOTE: sigmoid seems to be terrible
     activation_function = getattr(torch.nn, activation_function_str)()
     epochs = trial.suggest_int("epochs", 7, 12, log=True)
 
     scheduler = trial.suggest_categorical(
-        "scheduler", [
-            "warmupconstant", "warmuplinear", "warmupcosine"
-        ] 
+        "scheduler", ["warmupconstant", "warmuplinear", "warmupcosine"]
     )
+
     # TODO: add dropout, seems kinda annoying tho https://github.com/UKPLab/sentence-transformers/issues/677
 
-    # TODO: add learning rate scheduler
     res = finetune(
         model_id=MODEL_ID,
         save_path=VOL_MOUNT_PATH / f"trial-{trial.number}",
@@ -86,7 +88,7 @@ def objective(trial: optuna.Trial):
         epochs=epochs,
         dataset_fraction=2,
         activation_function=activation_function,
-        scheduler=scheduler
+        scheduler=scheduler,
     )
     return res
 
@@ -108,6 +110,9 @@ def run_optuna(i: int):
 
     study.optimize(lambda trial: objective(trial), n_trials=N_TRIALS)
 
+    trials = study.get_trials()
+
+    print("------trials------\n", trials)
     return i
 
 

@@ -45,7 +45,7 @@ if USE_CACHED_IMAGE:
     _allow_background_volume_commits=True,
 )
 def finetune_modal():
-    finetune(model_id=MODEL_ID, dataset_fraction=300, save_path=VOL_MOUNT_PATH)
+    finetune(model_id=MODEL_ID, dataset_fraction=2, save_path=VOL_MOUNT_PATH)
 
 
 # run on modal with `modal run main.py`

@@ -42,6 +42,7 @@ def finetune(
     train_test_split = dataset.train_test_split(test_size=0.1, seed=42)
     train_dataset = train_test_split["train"]
     test_dataset = train_test_split["test"]
+    # TODO: add another split, 3 splits in total
 
     if dense_out_features:
         embedding_model = SentenceTransformer(model_id)
@@ -93,7 +94,7 @@ def finetune(
         output_path=str(save_path / f"{model_id.replace('/','--')}-ft"),
         checkpoint_path=str(save_path / f"checkpoints"),
         checkpoint_save_total_limit=5,
-        scheduler=scheduler
+        scheduler=scheduler,
     )
 
     evaluator.csv_file = "binary_classification_evaluation_post_train" + "_results.csv"
