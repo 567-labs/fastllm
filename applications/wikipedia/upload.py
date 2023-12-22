@@ -1,5 +1,5 @@
 from pathlib import Path
-
+import time
 from modal import Image, Stub, Volume, Secret
 
 MODEL_ID = "BAAI/bge-small-en-v1.5"
@@ -17,7 +17,7 @@ cache_dir = "/data"
 data_dir = f"{cache_dir}/{dataset_name}"
 DATA_PATH = Path(data_dir)
 
-dataset_name = f"567-labs/wikipedia-embedding-{MODEL_SLUG}-sample"
+dataset_name = "567-labs/upload-test-benchmark"
 dataset_file = "wiki-embeddings.parquet"
 
 
@@ -34,12 +34,28 @@ stub = Stub("embeddings")
     secret=Secret.from_name("huggingface-credentials"),
 )
 def upload_dataset():
-    from datasets import load_dataset
+    from huggingface_hub import HfApi
     import os
+    api = HfApi(token=os.environ["HUGGINGFACE_TOKEN"])
+    api.create_repo(repo_id=dataset_name, private=False, repo_type="dataset",exist_ok=True)
+
 
     print(f"Pushing to hub {dataset_name}")
-    dataset = load_dataset("parquet", data_files=f"{cache_dir}/{dataset_file}")
-    dataset.push_to_hub(dataset_name, token=os.environ["HUGGINGFACE_TOKEN"])
+    # dataset = load_dataset(f"{cache_dir}/wikipedia")
+    start = time.perf_counter()
+    # dataset.push_to_hub(dataset_name)
+    api.upload_folder(
+        folder_path=f"{cache_dir}/wikipedia",
+        repo_id = dataset_name,
+        repo_type="dataset",
+        allow_patterns="*.arrow",
+        multi_commits=True,
+        multi_commits_verbose=True
+    )
+    
+
+    end = time.perf_counter()
+    print(f"Uploaded in {end-start}s")
 
 
 @stub.local_entrypoint()
