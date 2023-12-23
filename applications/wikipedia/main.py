@@ -30,7 +30,7 @@ DATA_PATH = Path(data_dir)
 
 SAVE_TO_DISK = True
 dataset_name = f"567-labs/wikipedia-embedding-{MODEL_SLUG}-debug"
-hf_dataset_name = "567-labs/upload-25"
+hf_dataset_name = "567-labs/upload-full"
 
 
 LAUNCH_FLAGS = [
@@ -262,7 +262,7 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
 
 @stub.local_entrypoint()
 def main():
-    scale = 0.25
+    scale = 1
     batch_size = 512 * 150
     with open("benchmarks.json", "a") as f:
         benchmark = embed_dataset.remote(down_scale=scale, batch_size=batch_size)
