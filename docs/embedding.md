@@ -440,7 +440,7 @@ async def embed(self, chunks):
 
 By doing so, we can increase the batch size that each container can process by a lot - in our case, we can now process almost 25600 chunks per container at any given time, resulting in a **33x increase in the capacity of each container** from our original batch size of 768. 
 
-With these two optimisations, we can now process the entirety of Wikipedia in just under 30 hours, resulting in almost 80% decrease in time taken to process the entire job.
+With these two optimisations, we can now process the entirety of Wikipedia in just under 15 minutes, resulting in a decrease in time required by more than 95%.
 
 ## HF_Transfer
 
