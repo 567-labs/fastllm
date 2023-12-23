@@ -3,7 +3,7 @@ from datasets import load_dataset
 import modal
 import pathlib
 import optuna
-from finetune import finetune
+from finetune_OnlineContrastiveLoss import finetune
 from datetime import datetime
 import torch
 

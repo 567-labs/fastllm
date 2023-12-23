@@ -13,7 +13,6 @@ from typing import Optional
 import os
 
 
-# TODO: refactor this to separate finetune from modal code.
 # maybe initialize the dataset inside the function?
 # also maybe make the hyperparameters as parameters of the finetune function
 def finetune(
@@ -32,8 +31,6 @@ def finetune(
     :rtype: float
     Inspired by: https://github.com/UKPLab/sentence-transformers/blob/657da5fe23fe36058cbd9657aec6c7688260dd1f/examples/training/quora_duplicate_questions/training_MultipleNegativesRankingLoss.py
     """
-
-    # TODO: handle if optuna saves to multiple checkpoints?
 
     # Quora pairs dataset: https://huggingface.co/datasets/quora
     DATASET_ID = "quora"

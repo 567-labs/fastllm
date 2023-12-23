@@ -2,7 +2,7 @@ from datasets import load_dataset
 from sentence_transformers import SentenceTransformer
 import modal
 import pathlib
-from finetune import finetune
+from finetune_OnlineContrastiveLoss import finetune
 
 MODEL_ID = "BAAI/bge-small-en-v1.5"
 
