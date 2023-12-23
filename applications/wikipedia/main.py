@@ -20,13 +20,18 @@ DOCKER_IMAGE = (
 )
 dataset_name = "wikipedia"
 volume = Volume.persisted("embedding-wikipedia")
+checkpoint_volume = Volume.persisted("checkpoint")
+
+checkpoint_volume_path = "/checkpoint"
 cache_dir = "/data"
+checkpoint_dir = f"{checkpoint_volume_path}/{dataset_name}"
 data_dir = f"{cache_dir}/{dataset_name}"
 DATA_PATH = Path(data_dir)
 
 SAVE_TO_DISK = True
 dataset_name = f"567-labs/wikipedia-embedding-{MODEL_SLUG}-debug"
-dataset_file = "wiki-embeddings.parquet"
+hf_dataset_name = "567-labs/upload-25"
+
 
 LAUNCH_FLAGS = [
     "--model-id",
@@ -76,11 +81,6 @@ tei_image = (
     .run_function(download_model, gpu=GPU_CONFIG)
     .pip_install("httpx")
 )
-
-
-
-    
-
 
 def generate_chunks_from_dataset(xs, chunk_size: int):
     for data in xs:
@@ -149,17 +149,18 @@ class TextEmbeddingsInference:
     image=Image.debian_slim().pip_install(
         "datasets", "pyarrow", "tqdm", "hf_transfer", "huggingface_hub"
     ),
-    volumes={cache_dir: volume},
-    _allow_background_volume_commits=True,
-    timeout=84600,
+    volumes={cache_dir: volume,checkpoint_volume_path:checkpoint_volume},
+    timeout=86400,
     secret=Secret.from_name("huggingface-credentials"),
 )
 def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
-    from datasets import load_from_disk, load_dataset
+    from datasets import load_from_disk, load_dataset,Dataset
     import pyarrow as pa
-    import pyarrow.parquet as pq
+    import pyarrow.dataset as ds
     import time
     import datetime
+    import os
+    from huggingface_hub import HfApi
     import os
 
     start = time.perf_counter()
@@ -177,7 +178,7 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
 
     sample_size = int(ttl_size * down_scale)
     print(f"Calculated dataset size of {ttl_size} and sample size of {sample_size}")
-
+    print(dataset)
     # Iterate over the first 5% of the dataset's rows
     subset = dataset["train"].select(range(sample_size))
     model = TextEmbeddingsInference()
@@ -231,25 +232,37 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
             ],
             names=["id", "url", "title", "text", "embedding"],
         )
-        checkpoint_dir = f"{cache_dir}/checkpoints"
-        path = f"{checkpoint_dir}/{dataset_file}"
-        print(f"Saving to disk at {path}")
-        os.makedirs(checkpoint_dir,exist_ok=True)
-        pq.write_table(table, path)
-        del dataset
-        for _ in range(3):
-            try:
-                volume.commit()
-            except Exception as e:
-                print("Encountered Exception when trying to commit ... sleeping for 3s")
-                time.sleep(3)
+        path_parent_folder = f"{checkpoint_dir}/{MODEL_SLUG}-{batch_size}-{down_scale}"
+        dataset = Dataset(table)
+        dataset.save_to_disk(path_parent_folder)
+        checkpoint_volume.commit()
+        print(f"Saved checkpoint at {path_parent_folder}")
+
+        api = HfApi(token=os.environ["HUGGINGFACE_TOKEN"])
+        api.create_repo(repo_id=hf_dataset_name, private=False, repo_type="dataset",exist_ok=True)
+
+
+        print(f"Pushing to hub {hf_dataset_name}")
+        start = time.perf_counter()
+        api.upload_folder(
+            folder_path=path_parent_folder,
+            repo_id = hf_dataset_name,
+            repo_type="dataset",
+            allow_patterns="*.arrow",
+            multi_commits=True,
+            multi_commits_verbose=True
+        )
+        
+
+        end = time.perf_counter()
+        print(f"Uploaded in {end-start}s")
 
     return resp
 
 
 @stub.local_entrypoint()
 def main():
-    scale = 0.001
+    scale = 0.25
     batch_size = 512 * 150
     with open("benchmarks.json", "a") as f:
         benchmark = embed_dataset.remote(down_scale=scale, batch_size=batch_size)

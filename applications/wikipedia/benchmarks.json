@@ -583,3 +583,51 @@
   "characters_per_sec": 21734383,
   "extrapolated_duration": "0:14:59.981332"
 }
+{
+  "downscale": 0.001,
+  "batch_size": 76800,
+  "n_gpu": 100,
+  "duration_mins": 0.6121267081333333,
+  "characters_per_sec": 3817200,
+  "extrapolated_duration": "1:25:24.315980"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 76800,
+  "n_gpu": 100,
+  "duration_mins": 0.66995347145,
+  "characters_per_sec": 3487720,
+  "extrapolated_duration": "1:33:28.402898"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 76800,
+  "n_gpu": 100,
+  "duration_mins": 0.5159766637333334,
+  "characters_per_sec": 4528519,
+  "extrapolated_duration": "1:11:59.411922"
+}
+{
+  "downscale": 0.001,
+  "batch_size": 76800,
+  "n_gpu": 100,
+  "duration_mins": 0.6156061165666666,
+  "characters_per_sec": 3795625,
+  "extrapolated_duration": "1:25:53.443493"
+}
+{
+  "downscale": 0.1,
+  "batch_size": 76800,
+  "n_gpu": 100,
+  "duration_mins": 3.724228637233333,
+  "characters_per_sec": 21665007,
+  "extrapolated_duration": "0:15:02.863265"
+}
+{
+  "downscale": 0.25,
+  "batch_size": 76800,
+  "n_gpu": 100,
+  "duration_mins": 8.42808782805,
+  "characters_per_sec": 16662162,
+  "extrapolated_duration": "0:19:33.949633"
+}

@@ -41,9 +41,7 @@ def upload_dataset():
 
 
     print(f"Pushing to hub {dataset_name}")
-    # dataset = load_dataset(f"{cache_dir}/wikipedia")
     start = time.perf_counter()
-    # dataset.push_to_hub(dataset_name)
     api.upload_folder(
         folder_path=f"{cache_dir}/wikipedia",
         repo_id = dataset_name,
