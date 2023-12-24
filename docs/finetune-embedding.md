@@ -1,12 +1,13 @@
 # Boost your RAG: Fine-Tuning Text Embedding Models on Modal
 
-Simply using a text embedding model + Vector DB is **not** a catch-all technique for building a performant retrieval system (i.e. for RAG). Rather, each task that involves using an embedding model is a unique one and should be treated as so.
+Using a base text embedding model + Vector DB is just the start for building a performant embedding system (i.e. for RAG). Each task that involves an embedding model is a unique one that can be fine-tuned.
 
-Having an embedding model that is fine-tuned for your specific task can greatly improve performance. There are a few ways of going about this: picking a performant embedding model, having a robust dataset to train your specific task on, and choosing the right way to train your embedding model. In this article, we will discuss how to approach all of these and specifically how to fine-tune an open-source sentence embedding model using [Modal](https://modal.com/).
+Having an embedding model that is fine-tuned for your specific task can greatly improve performance. There are a few ways of going about this: picking a performant embedding model, having a robust dataset to train your specific task on, and choosing the right way to train your embedding model. In this article, we will discuss how to approach all of these and specifically how to fine-tune an open-source sentence embedding model using [`SentenceTransformers`](https://www.sbert.net/index.html) and [Modal](https://modal.com/). We will also cover how to do hyperparameter optimization using [Optuna](https://optuna.org/) on Modal to maximize your fine-tuning performance.
 
-This article is the second in a series demonstrating how Modal can be effectively used with open-source embedding models, the first can be [found here](https://www.example.com). We will discuss three main topics: preparing your dataset for fine-tuning, fine-tuning your embedding model on Modal with [`SentenceTransformers`](https://www.sbert.net/index.html), and making the most of fine-tuning by using [Optuna](https://optuna.org/) (hyperparameter optimization framework) on Modal.
+This article is the second in a series demonstrating how Modal can be effectively used with open-source embedding models, the first can be [found here](https://www.example.com). Through our tests, we've found that fine-tuning a base model can increase our performance from XX% to XX%, and further fine-tuning with hyperparameter optimization can increase it to XX%
 
 **TODO: mention some metrics here**
+** TODO: Mention sentencetransformers more***
 
 ## Fine-Tuning Basics
 
@@ -122,6 +123,7 @@ We first add our training data to a Pytorch `Dataloader`, which formats it into 
 
 ```python
 from torch.utils.data import DataLoader
+
 train_dataloader = DataLoader(train_examples, shuffle=True, batch_size=batch_size)
 
 model.fit(
@@ -141,7 +143,13 @@ Here are some common tasks and their associated training methods
 
 ## Fine-Tuning on Modal
 
+**TODO: write this**
+
+* write about how we can easily run this in the cloud with Modal stub and function, specify GPU and stuff, how to load it as a Huggingface compatible model
+
 ## Fine-Tuning using Hyperparameter Optimization on Modal + Optuna
+
+**TODO: write this**
 
 * NFS, use as the backend for Optuna
 * Objective function, this is what we optimize
