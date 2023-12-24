@@ -79,10 +79,22 @@ def objective(trial: optuna.Trial):
         "scheduler", ["warmupconstant", "warmuplinear", "warmupcosine"]
     )
 
+    model_id = trial.suggest_categorical(
+        "model_id",
+        [
+            "BAAI/bge-small-en-v1.5",
+            "BAAI/bge-base-en-v1.5",
+            "thenlper/gte-small",
+            "intfloat/e5-small-v2",
+            "sentence-transformers/all-MiniLM-L12-v2",
+            "sentence-transformers/all-mpnet-base-v2",
+        ],
+    )
+
     # TODO: add dropout, seems kinda annoying tho https://github.com/UKPLab/sentence-transformers/issues/677
 
     res = finetune(
-        model_id=MODEL_ID,
+        model_id=model_id,
         save_path=VOL_MOUNT_PATH / f"trial-{trial.number}",
         dense_out_features=dense_out_features,
         epochs=epochs,
