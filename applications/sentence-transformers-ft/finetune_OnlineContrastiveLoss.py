@@ -32,7 +32,7 @@ def finetune(
     :rtype: float
     Inspired by: https://github.com/UKPLab/sentence-transformers/blob/657da5fe23fe36058cbd9657aec6c7688260dd1f/examples/training/quora_duplicate_questions/training_MultipleNegativesRankingLoss.py
     """
-
+    #### Just logging initialization
     logging.basicConfig(
         format="%(asctime)s - %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
@@ -41,15 +41,7 @@ def finetune(
     )
     logger = logging.getLogger(__name__)
 
-    # Quora pairs dataset: https://huggingface.co/datasets/quora
-    DATASET_ID = "quora"
-    dataset = load_dataset(DATASET_ID, split="train")
-    # Quora pairs dataset only contains a "train" split in huggingface, so we will manually split it into train and test
-    train_test_split = dataset.train_test_split(test_size=0.1, seed=42)
-    train_dataset = train_test_split["train"]
-    test_dataset = train_test_split["test"]
-    # TODO: add another split, 3 splits in total
-
+    #### Initialize Model
     if dense_out_features:
         embedding_model = SentenceTransformer(model_id)
         dense_model = models.Dense(
@@ -61,6 +53,17 @@ def finetune(
     else:
         model = SentenceTransformer(model_id)
 
+    #### Initialize Dataset
+    # Quora pairs dataset: https://huggingface.co/datasets/quora
+    DATASET_ID = "quora"
+    dataset = load_dataset(DATASET_ID, split="train")
+    # Quora pairs dataset only contains a "train" split in huggingface, so we will manually split it into train and test
+    train_test_split = dataset.train_test_split(test_size=0.1, seed=42)
+    # For simplicity we only split into 2 datasets, but you can add another split for "eval", 3 splits in total, if desired
+    train_dataset = train_test_split["train"]
+    test_dataset = train_test_split["test"]
+
+    #### Format Dataset for loss and eval
     train_examples = [
         InputExample(
             texts=[
@@ -71,11 +74,7 @@ def finetune(
         )
         for i in range(train_dataset.num_rows // dataset_fraction)
     ]
-
     train_dataloader = DataLoader(train_examples, shuffle=True, batch_size=batch_size)
-    train_loss = losses.OnlineContrastiveLoss(model)
-
-    test_examples = []
     test_examples = [
         InputExample(
             texts=[
@@ -86,16 +85,19 @@ def finetune(
         )
         for i in range(test_dataset.num_rows // dataset_fraction)
     ]
+
+    #### Initialize loss
+    train_loss = losses.OnlineContrastiveLoss(model)
+
+    #### Initialize evaluator
     evaluator = evaluation.BinaryClassificationEvaluator.from_input_examples(
         test_examples,
     )
 
-    # make the directory if it doesn't exist already for, needed for if the folder isn't created I.E. in modal-optuna
+    #### Pre Train Evaluation
     if not os.path.exists(save_path):
         os.mkdir(save_path)
-
     evaluator.csv_file = "binary_classification_evaluation_pre_train" + "_results.csv"
-
     logger.info("### Model Evaluation Without Training ###")
     evaluator(model, output_path=str(save_path))
     pre_train_eval = evaluator(model, output_path=str(save_path))
@@ -103,6 +105,7 @@ def finetune(
         f"Post train eval score (highest Average Precision across all distance functions):{pre_train_eval}"
     )
 
+    #### Train the model
     evaluator.csv_file = "binary_classification_evaluation" + "_results.csv"
     model.fit(
         train_objectives=[(train_dataloader, train_loss)],
@@ -117,9 +120,8 @@ def finetune(
         ),
     )
 
-    logger.info(f"")
-
-    # TODO: don't return post train eval, return the best score across epochs instead
+    #### Evaluate the model afterwards
+    # For simplicity, we are only returning metrics for the fully trained model rather than early-stopping and choosing the best performing model
     evaluator.csv_file = "binary_classification_evaluation_post_train" + "_results.csv"
     post_train_eval = evaluator(model, output_path=str(save_path))
     logger.info(
@@ -129,12 +131,13 @@ def finetune(
     return post_train_eval
 
 
-# run on local with `python main.py`
+# run on local with `python finetune_OnlineContrastiveLoss.py`
 if __name__ == "__main__":
+    # hyperparameters set low as an example to run quicker on local device
     finetune(
         model_id="BAAI/bge-small-en-v1.5",
-        save_path=pathlib.Path("./"),
-        dataset_fraction=1000,
-        epochs=3,
+        save_path=pathlib.Path("./output"),
+        dataset_fraction=100,
+        epochs=5,
         batch_size=8,
     )
