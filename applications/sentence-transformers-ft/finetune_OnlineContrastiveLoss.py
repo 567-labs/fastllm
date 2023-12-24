@@ -7,6 +7,7 @@ from sentence_transformers import (
     evaluation,
     models,
     LoggingHandler,
+    util,
 )
 from torch import nn
 import pathlib
@@ -24,7 +25,7 @@ def finetune(
     scheduler: str = "warmuplinear",
     dense_out_features: Optional[int] = None,
     batch_size: int = 32,
-):
+) -> tuple[float, SentenceTransformer]:
     """
     Finetune a sentence transformer on the quora pairs dataset. Evaluates model performance before/after training
 
@@ -42,6 +43,7 @@ def finetune(
     logger = logging.getLogger(__name__)
 
     #### Initialize Model
+    # We optionally append a linear affine layer to the model to modify the size of the output embedding vector
     if dense_out_features:
         embedding_model = SentenceTransformer(model_id)
         dense_model = models.Dense(
@@ -123,21 +125,32 @@ def finetune(
     #### Evaluate the model afterwards
     # For simplicity, we are only returning metrics for the fully trained model rather than early-stopping and choosing the best performing model
     evaluator.csv_file = "binary_classification_evaluation_post_train" + "_results.csv"
-    post_train_eval = evaluator(model, output_path=str(save_path))
+    post_train_eval_score = evaluator(model, output_path=str(save_path))
     logger.info(
-        f"Post train eval score (highest Average Precision across all distance functions):{post_train_eval}"
+        f"Post train eval score (highest Average Precision across all distance functions):{post_train_eval_score}"
     )
 
-    return post_train_eval
+    return post_train_eval_score, model
 
 
 # run on local with `python finetune_OnlineContrastiveLoss.py`
 if __name__ == "__main__":
     # hyperparameters set low as an example to run quicker on local device
-    finetune(
+    post_train_eval, model = finetune(
         model_id="BAAI/bge-small-en-v1.5",
         save_path=pathlib.Path("./output"),
-        dataset_fraction=100,
+        dataset_fraction=500,
         epochs=5,
-        batch_size=8,
+        batch_size=16,
     )
+
+    print("Post train eval", post_train_eval)
+    s1 = "How much does an average apple weigh?"
+    s2 = "How heavy is an apple on average?"
+    emb1 = model.encode(s1)
+    emb2 = model.encode(s2)
+
+    print("Post train model encoding similarity:")
+    print(f"Sentences: \n1. {s1}\n2. {s2}")
+    print(f"Similarity: {util.cos_sim(emb1, emb2).item()}")
+

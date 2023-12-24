@@ -3,13 +3,15 @@ from sentence_transformers import SentenceTransformer
 import modal
 import pathlib
 from finetune_OnlineContrastiveLoss import finetune
+from datetime import datetime
 
-MODEL_ID = "BAAI/bge-small-en-v1.5"
+MODEL_ID = "BAAI/bge-base-en-v1.5"
 
 # Modal constants
 VOL_MOUNT_PATH = pathlib.Path("/vol")
 GPU_CONFIG = "a10g"
 USE_CACHED_IMAGE = True  # enable this to download the dataset and base model into the image for faster repeated runs
+PERSIST_VOLUME = False  # Enable this to persist the trained model in Modal afterwards
 
 
 def download_model():
@@ -22,13 +24,13 @@ def download_dataset():
 
 
 # Modal resources
-# TODO: uncomment this to make the volume persisted
-# TODO: for final code just make it persisted, right now leave it commented for dev purposes
-# volume = modal.Volume.persisted(
-#     f"sentence-transformers-ft-{int(datetime.now().timestamp())}"
-# )
-# non-persistent volume for dev purposes
-volume = modal.Volume.new()
+if PERSIST_VOLUME:
+    # Persisted volumes are available after the modal application finishes
+    volume = modal.Volume.persisted(
+        f"sentence-transformers-ft-{int(datetime.now().timestamp())}"
+    )
+else:
+    volume = modal.Volume.new()
 stub = modal.Stub("finetune-embeddings")
 image = modal.Image.debian_slim().pip_install(
     "sentence-transformers", "torch", "datasets"
@@ -45,10 +47,23 @@ if USE_CACHED_IMAGE:
     _allow_background_volume_commits=True,
 )
 def finetune_modal():
-    finetune(model_id=MODEL_ID, dataset_fraction=2, save_path=VOL_MOUNT_PATH)
+    score, model = finetune(
+        model_id=MODEL_ID, dataset_fraction=1000, epochs=2, save_path=VOL_MOUNT_PATH
+    )
+
+    # Move model to CPU so it can be loaded to the host computer (currently is on CUDA)
+    model.to("cpu")
+
+    return score, model
 
 
-# run on modal with `modal run main.py`
+# run on modal with `modal run main-modal.py`
 @stub.local_entrypoint()
 def main():
-    finetune_modal.remote()
+    score, model = finetune_modal.remote()
+
+    print("Post Train eval score", score)
+    
+    # Save the model to a local directory, which can be loaded using SentenceTransformers("./finetuned-embeddings-{XXXXXXX}")
+    model.save(f"./finetuned-embeddings-{int(datetime.now().timestamp())}")
+

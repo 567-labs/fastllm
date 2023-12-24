@@ -93,16 +93,16 @@ def objective(trial: optuna.Trial):
 
     # TODO: add dropout, seems kinda annoying tho https://github.com/UKPLab/sentence-transformers/issues/677
 
-    res = finetune(
+    eval_score, _ = finetune(
         model_id=model_id,
         save_path=VOL_MOUNT_PATH / f"trial-{trial.number}",
         dense_out_features=dense_out_features,
         epochs=epochs,
-        dataset_fraction=2,
+        dataset_fraction=1000,
         activation_function=activation_function,
         scheduler=scheduler,
     )
-    return res
+    return eval_score
 
 
 @stub.function(
@@ -138,6 +138,8 @@ def conclude_optuna():
 
     trials = study.get_trials()
     print(trials)
+    # TODO: get best trial and return that model?
+    # find the highest trial number, get that directory, load model from that directory, return model
     return trials
 
 
