@@ -90,6 +90,7 @@ def objective(trial: optuna.Trial):
 @stub.function(
     image=image,
     gpu=GPU_CONFIG,
+    # TODO: increase timeout
     timeout=15000,
     volumes={VOL_MOUNT_PATH: volume},
     _allow_background_volume_commits=True,

@@ -4,14 +4,15 @@ import modal
 import pathlib
 from finetune_OnlineContrastiveLoss import finetune
 from datetime import datetime
+import argparse
 
 MODEL_ID = "BAAI/bge-base-en-v1.5"
 
 # Modal constants
 VOL_MOUNT_PATH = pathlib.Path("/vol")
-GPU_CONFIG = "a10g"
+GPU_CONFIG = "a100"
 USE_CACHED_IMAGE = True  # enable this to download the dataset and base model into the image for faster repeated runs
-PERSIST_VOLUME = False  # Enable this to persist the trained model in Modal afterwards
+PERSIST_VOLUME = True  # Enable this to persist the trained model in Modal afterwards
 
 
 def download_model():
@@ -42,13 +43,13 @@ if USE_CACHED_IMAGE:
 @stub.function(
     image=image,
     gpu=GPU_CONFIG,
-    timeout=15000,
+    timeout=30000,
     volumes={VOL_MOUNT_PATH: volume},
     _allow_background_volume_commits=True,
 )
 def finetune_modal():
     score, model = finetune(
-        model_id=MODEL_ID, dataset_fraction=1000, epochs=2, save_path=VOL_MOUNT_PATH
+        model_id=MODEL_ID, dataset_fraction=5, epochs=8, save_path=VOL_MOUNT_PATH
     )
 
     # Move model to CPU so it can be loaded to the host computer (currently is on CUDA)
@@ -63,7 +64,6 @@ def main():
     score, model = finetune_modal.remote()
 
     print("Post Train eval score", score)
-    
+
     # Save the model to a local directory, which can be loaded using SentenceTransformers("./finetuned-embeddings-{XXXXXXX}")
     model.save(f"./finetuned-embeddings-{int(datetime.now().timestamp())}")
-

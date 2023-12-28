@@ -1,8 +1,8 @@
-# Boost your RAG: Fine-Tuning Text Embedding Models on Modal
+# Fine-Tuning Text Embedding Models with Sentence Transformers on Modal
 
 **TODO: make the intro better**
 
-Using a base text embedding model + Vector DB is just the start for building a performant embedding system (i.e. for RAG). Each task that involves an embedding model is a unique one that can be fine-tuned.
+Using a base text embedding model + Vector DB is just the start for building a performant embedding system (i.e. for RAG). Each task that involves an embedding model is a unique one that can be fine-tuned for.
 
 Having an embedding model that is fine-tuned for your specific task can greatly improve performance. There are a few ways of going about this: picking a performant embedding model, having a robust dataset to train your specific task on, and choosing the right way to train your embedding model. In this article, we will discuss how to approach all of these and specifically how to fine-tune an open-source sentence embedding model using [`SentenceTransformers`](https://www.sbert.net/index.html) and [Modal](https://modal.com/). We will also cover how to do hyperparameter optimization using [Optuna](https://optuna.org/) on Modal to maximize your fine-tuning performance.
 
@@ -13,21 +13,34 @@ This article is the second in a series demonstrating how Modal can be effectivel
 
 ## Fine-Tuning Basics
 
-To begin fine-tuning a sentence transformer, we need to start by identifying the actual task we are trying to fine-tune for. Remember, every task is unique, so they require a unique dataset format, loss, and evaluator. We will be using the `SentenceTransformers` framework to easily set these requirements for fine-tuning.
+To fine-tune a text embedding model, we need to start by identifying the actual task we are trying to train for. Fine-tuning a model requires you to make 3 choices, depending on the task:
 
-For this article, we will be choosing the specific task of **Duplicate Text Classification**, i.e. given two questions, identify whether they are semantically duplicates. However, other tasks can be optimized for including information retrieval, duplicate statement mining, and more.
+* **Dataset Format**: typically pairs or triplets of text
+* **Loss**: the function we optimize for during training
+* **Evaluator**: how we evaluate our model's performance after training
 
-NOTE: Most of the instructions in this section are based on this excellent guide: <https://www.sbert.net/examples/training/quora_duplicate_questions/README.html>
+Here are some common tasks and their associated training methods
+
+|       | Dataset Format | Loss          | Evaluator     |
+|-------------------------------|----------------|---------------|---------------|
+|**Duplicate Text Classification [[source]](https://github.com/UKPLab/sentence-transformers/blob/master/examples/training/quora_duplicate_questions/training_OnlineContrastiveLoss.py)**|Pairs of text that are labeled as duplicate or not|[Online Contrastive Loss](https://www.sbert.net/docs/package_reference/losses.html#onlinecontrastiveloss)|[Binary Classification Evaluation](https://www.sbert.net/docs/package_reference/evaluation.html#sentence_transformers.evaluation.BinaryClassificationEvaluator)|
+|**Information Retrieval [[source]](https://github.com/UKPLab/sentence-transformers/blob/master/examples/training/quora_duplicate_questions/training_MultipleNegativesRankingLoss.py)**|Pairs of text that are semantically relevant (don't need labeled duplicates)|[Multiple Negatives Ranking Loss](https://www.sbert.net/docs/package_reference/losses.html#multiplenegativesrankingloss)|[Information Retrieval Evaluator](https://www.sbert.net/docs/package_reference/evaluation.html#sentence_transformers.evaluation.InformationRetrievalEvaluator)|
+
+For this article, we will be choosing the specific task of **Duplicate Text Classification**, i.e. given two questions, identify whether they are semantically duplicates. Let's go over which **dataset format**, **loss**, and **evaluator** to use for this specific fine-tuning task.
+
+**NOTE**: This section is based on this guide from the `SentenceTransformers` docs, read it for more details! <https://www.sbert.net/examples/training/quora_duplicate_questions/README.html>
 
 ### Choosing a Base Model
 
-We will choose our open-source base model using the MTEB [Leaderboard](https://huggingface.co/spaces/mteb/leaderboard) as a reference. The MTEB (Massive Text Embedding Benchmark) Leaderboard lists the top-ranking Text Embedding models for different tasks. Since our task is duplicate text classification, we will be using the "Pair Classification" task to select a model.
+Before we can fine-tune anything though, we need to pick a base model.
+
+Let's choose a base embedding model using the MTEB (Massive Text Embedding Benchmark) [Leaderboard](https://huggingface.co/spaces/mteb/leaderboard) as a reference. Since our task is duplicate text classification, we will be using the "Pair Classification" category to select a model.
 
 ![MTEB Pair Classification Leaderboard](assets/mteb.png)
 
-Let's choose [`BAAI/bge-base-en-v1.5`](https://huggingface.co/BAAI/bge-base-en-v1.5) for this article.
+Let's choose [`BAAI/bge-base-en-v1.5`](https://huggingface.co/BAAI/bge-base-en-v1.5) for this article since it seems to perform well for that category.
 
-**NOTE**: Some models on the leaderboard are potentially trained on test data of MTEB, which may lead to inaccurate metrics. Thus, it should only be used as a reference for selecting models. To remedy this, we will conduct hyperparameter optimization later in this article using the base model as a hyperparameter. [Details](https://twitter.com/Nils_Reimers/status/1738115869392146708)
+> **NOTE**: Some models on the leaderboard are [potentially trained on the test data](https://twitter.com/Nils_Reimers/status/1738115869392146708) of MTEB, which may lead to inaccurate metrics. Thus, it should only be used as a reference for selecting models. To remedy this, we will conduct hyperparameter optimization later in a [later article](TODO) to choose the best model for your specific fine-tuning task.
 
 We will begin by initializing our base model.
 
@@ -39,11 +52,12 @@ model = SentenceTransformers("BAAI/bge-base-en-v1.5")
 
 ### Formatting our Dataset
 
-The dataset we use is dependent on the **unique** task we have chosen. In this case, our dataset needs to be many pairs of texts each with a label stating if it's a duplicate or not. For this article, we will be using the [Quora Pairs Dataset](https://huggingface.co/datasets/quora) which is in our desired format.
+The dataset we use is dependent on the **unique** task we have chosen. In this case, our dataset needs to be pairs of texts each with a label stating if it's a duplicate or not.
 
-Dataset format:
+For this article, we will be using the [Quora Pairs Dataset](https://huggingface.co/datasets/quora) which is in our desired format. This dataset contains about 400,000 pairs of questions, each with a label determining if they're duplicates.
 
 ```json
+// Quora dataset format
 {
     "is_duplicate": true,
     "questions": {
@@ -52,18 +66,18 @@ Dataset format:
 }
 ```
 
-Let's begin by importing our dataset and splitting it into a `train` and `test` split
+Let's import our dataset and split it into a `train` and `test` split.
 
 ```python
 from datasets import load_dataset
 
-dataset = load_dataset("quora", split="train") # quora dataset only contains a 'train split'
+dataset = load_dataset("quora", split="train") # quora dataset only contains a 'train split', so we will manually split it
 train_test_split = dataset.train_test_split(test_size=0.1)
 train_dataset = train_test_split["train"]
 test_dataset = train_test_split["test"]
 ```
 
-Next, let's get into the correct format for the `SentenceTransformers` library. We will turn it into a list of `InputExample`, which is used to represent our training and test data. [source](https://www.sbert.net/docs/training/overview.html?highlight=inputexample#training-data)
+Now, let's turn our `train_dataset` into a List of `InputExample`(s), which is a common data format that the `SentenceTransformers` library uses.
 
 ```python
 from sentence_transformers import InputExample
@@ -78,6 +92,11 @@ train_examples = [
   )
   for i in range(train_dataset.num_rows)
 ]
+```
+
+Do the same thing for `test_dataset`
+
+```python
 test_examples = [
   InputExample(
     texts=[
@@ -90,13 +109,15 @@ test_examples = [
 ]
 ```
 
-Nice! Our dataset is now in the correct format.
+Nice! 👍 Our dataset is now in the correct format for training.
 
 ### Choosing a Loss Function
 
-The loss function we choose is also dependent on our specific task. In our case, we will be using `OnlineContrastiveLoss` since it fits our task of duplicate pair classification. This is because contrastive loss functions by making sure that "Similar pairs with label 1 are pulled together, so that they are close in vector space. Dissimilar pairs, that are closer than a defined margin, are pushed away in vector space."[[SBERT docs]](https://www.sbert.net/examples/training/quora_duplicate_questions/README.html#constrative-loss).
+The loss function we choose is also dependent on our specific task. In our case, we will be using `OnlineContrastiveLoss` since it fits our task of duplicate pair classification.
 
-We initialize our loss function using the base model we initialized earlier.
+A detailed explanation can be [found here](https://www.sbert.net/examples/training/quora_duplicate_questions/README.html#constrative-loss), but in short contrastive loss functions work by optimizing for the condition where "Similar pairs with label 1 are pulled together, so that they are close in vector space. Dissimilar pairs, that are closer than a defined margin, are pushed away in vector space." (SBERT)
+
+We initialize our loss function as shown
 
 ```python
 from sentence_transformers import losses
@@ -106,7 +127,9 @@ train_loss = losses.OnlineContrastiveLoss(model)
 
 ### Choosing an Evaluator
 
-The evaluation function we choose is also dependent on our specific task. In our case of duplicate air classification, we use `BinaryClassificationEvaluator`. This is because it's an evaluator that simply answers the question "Given (quesiton1, question2), is this a duplicate or not?"[[SBERT code]](https://github.com/UKPLab/sentence-transformers/blob/master/examples/training/quora_duplicate_questions/training_OnlineContrastiveLoss.py#L78-L93). It will be used to evaluate the training of our model.
+The evaluation function we choose is also dependent on our specific task. In our case of duplicate pair classification, we use `BinaryClassificationEvaluator`.
+
+`BinaryClassificationEvaluator` works by the question evaluating "Given (question1, question2), is this a duplicate or not?"[[SBERT code]](https://github.com/UKPLab/sentence-transformers/blob/master/examples/training/quora_duplicate_questions/training_OnlineContrastiveLoss.py#L78-L93).
 
 We initialize the evaluator function using our test data
 
@@ -117,7 +140,7 @@ evaluator = evaluation.BinaryClassificationEvaluator.from_input_examples(
 )
 ```
 
-* choose a base model, loss, and evaluator
+**TODO explain evaluation metrics**
 
 ### Fine-Tuning the Model
 
@@ -305,32 +328,8 @@ Visit the Modal Dashboard to see live metrics and logs of your Modal app.
 
 As you can see, it's super easy to get started using GPUs in the cloud to run ML training jobs with Modal. A test training job I did took over 50 minutes on my personal Macbook Pro vs less than 4 minutes on Modal's serverless GPU.
 
-## Fine-Tuning using Hyperparameter Optimization on Modal + Optuna
+**TODO more Modal details**
 
-Fine-tuning using hyperparameter optimization (aka grid search) is a more advanced topic, however it can be very effective in tuning more performant models, including sentence transformer models. Modal is uniquely capable to do distributed hyperparameter optimizaton by using Modal's [NetworkFileSystem](https://modal.com/docs/guide/network-file-systems) feature with a hyperparameter framework, [Optuna](https://optuna.org/).
+## Conclusion
 
-Basically, with Modal we can spin up dozens of serverless GPUs simulatneously to run dozens of hyperparameter tuning trials in parallel! Pretty cool, right?
-
-### What is Optuna?
-
-**TODO clarify how optuna works with trials**
-
-Optuna is an open-source hyperparameter optimization framework designed for machine learning. It provides an efficient and easy-to-use interface for automatically searching for the best hyperparameters in your model training process. Specifically, how it works is it involves defining an objective function, in this case our loss, that is minimized for by testing a variety of hyperparameter combinations in various trials.
-
-While this is a general technique used in machine learning, it is uniquely useful for fine-tuning sentence transformers as well. In addition to the standard hyperparameters we can optimize for the model, including learning rate, batch size, # of epochs, etc. it allows us to test some important hyperparameters specific to sentence transformers: the base embedding model and an optional linear layer.
-
-Hyperparameters to test:
-
-* Base Embedding Model: there are many different OSS embedding models and it's difficult to choose the right one. Testing multiple would help us find the most performant one for our specific task
-* Optional Linear Layer Paramater Count: we can use a linear layer to help fine-tune our model and modify the output embedding dimension count using [sentence_transformers.models.Dense](https://www.sbert.net/docs/package_reference/models.html#sentence_transformers.models.Dense) This is useful for compressing our output embeddings to save space in a vector database
-* Standard hyperparameters such as learning rate scheduler, batch size, # of epochs
-
-### How do we use this with Modal?
-
-**TODO link to repo**
-
-Since the code for this is slightly more complicated than the simple fine-tuning we did previously, details can be found above.
-
-The gist of it is that we are using Optuna with a [`JournalFileStorage`](https://optuna.readthedocs.io/en/stable/reference/generated/optuna.storages.JournalFileStorage.html#optuna.storages.JournalFileStorage) backend to store data from our multiple trials. `JournalFileStorage` allows us to use it with Network File System, or NFS.
-
-Modal provides an [NFS resource](https://modal.com/docs/guide/network-file-systems) for us, which we instantiate with out stub. We then invoke multiple Modal Functions in parallel with Modal's `map()` ([details here](https://modal.com/docs/guide/scale)), provisioning GPU containers in parallel which act as workers for our distributed Optuna grid search. These workers test multiple trials in parallel
+In this tutorial, we covered using stubs and functions to run ML training jobs by fine-tuning sentence transformers
