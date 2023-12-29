@@ -1,32 +1,34 @@
-from itertools import product
-import json
 import asyncio
+import json
 import subprocess
-from pathlib import Path
-import time
+from modal import Image, Secret, Stub, Volume, gpu, method
 
-from modal import Image, Stub, Volume, gpu, method, Secret
-
+# We first set out configuration variables for our script.
+## Embedding Containers Configuration
 N_GPU = 100
 GPU_CONFIG = gpu.A10G()
 MODEL_ID = "BAAI/bge-small-en-v1.5"
 MODEL_SLUG = MODEL_ID.split("/")[-1]
-
 BATCH_SIZE = 512
 DOCKER_IMAGE = (
     "ghcr.io/huggingface/text-embeddings-inference:86-0.4.0"  # Ampere 86 for A10s.
     # "ghcr.io/huggingface/text-embeddings-inference:0.4.0" # Ampere 80 for A100s.
     # "ghcr.io/huggingface/text-embeddings-inference:0.3.0"  # Turing for T4s.
 )
-dataset_name = "wikipedia"
-volume = Volume.persisted("embedding-wikipedia")
-cache_dir = "/data"
-data_dir = f"{cache_dir}/{dataset_name}"
-DATA_PATH = Path(data_dir)
 
-PUSH_TO_HUB = False
-dataset_name = f"567-labs/wikipedia-embedding-{MODEL_SLUG}-sample"
-dataset_file = "wiki-embeddings.parquet"
+## Dataset-Specific Configuration
+DATASET_NAME = "wikipedia"
+DATASET_READ_VOLUME = Volume.persisted("embedding-wikipedia")
+EMBEDDING_CHECKPOINT_VOLUME = Volume.persisted("checkpoint")
+DATASET_DIR = "/data"
+CHECKPOINT_DIR = "/checkpoint"
+SAVE_TO_DISK = True
+
+## Upload-Specific Configuration
+DATASET_HF_UPLOAD_REPO_NAME = "567-labs/upload-test"
+UPLOAD_TO_HF = True
+
+## HF Text-Embedding Inference specific Configuration
 
 LAUNCH_FLAGS = [
     "--model-id",
@@ -40,11 +42,13 @@ LAUNCH_FLAGS = [
 ]
 
 
+stub = Stub("embeddings")
+
+
 def spawn_server() -> subprocess.Popen:
     import socket
 
     process = subprocess.Popen(["text-embeddings-router"] + LAUNCH_FLAGS)
-
     # Poll until webserver at 127.0.0.1:8000 accepts connections before running inputs.
     while True:
         try:
@@ -60,11 +64,7 @@ def spawn_server() -> subprocess.Popen:
 
 
 def download_model():
-    # Wait for server to start. This downloads the model weights when not present.
     spawn_server()
-
-
-stub = Stub("embeddings")
 
 
 tei_image = (
@@ -76,7 +76,6 @@ tei_image = (
     .run_function(download_model, gpu=GPU_CONFIG)
     .pip_install("httpx")
 )
-
 
 with tei_image.imports():
     import numpy as np
@@ -134,7 +133,6 @@ class TextEmbeddingsInference:
     @method()
     async def embed(self, chunks):
         """Embeds a list of texts.  id, url, title, text = chunks[0]"""
-
         coros = [
             self._embed(chunk_batch)
             for chunk_batch in generate_batches(chunks, batch_size=BATCH_SIZE)
@@ -144,49 +142,110 @@ class TextEmbeddingsInference:
         return chunks, embeddings
 
 
-@stub.function(
-    image=Image.debian_slim().pip_install("datasets", "pyarrow", "tqdm"),
-    volumes={cache_dir: volume},
-    timeout=84600,
-    secret=Secret.from_name("huggingface-credentials"),
-)
-def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
-    from datasets import load_from_disk, load_dataset
-    import pyarrow as pa
-    import pyarrow.parquet as pq
+def load_dataset_from_disk(down_scale=0.01):
     import time
-    import datetime
-    import os
+    from datasets import load_from_disk
 
     start = time.perf_counter()
     # Load the dataset as a Hugging Face dataset
-    print("Loading dataset from disk... ~ 40 seconds")
-    dataset = load_from_disk(f"{cache_dir}/wikipedia")
+    dataset = load_from_disk(f"{DATASET_DIR}/wikipedia")
     print(f"Dataset loaded in {time.perf_counter()-start:.2f} seconds")
 
     # Extract the total size of the dataset
     ttl_size = len(dataset["train"])
 
-    # Counting all characters in the dataset
-    dataset_chars = 19560538957  # sum(map(len, dataset["train"]["text"]))
-    print(f"Total dataset characters: {dataset_chars}")
-
     sample_size = int(ttl_size * down_scale)
-    print(f"Calculated dataset size of {ttl_size} and sample size of {sample_size}")
 
-    # Iterate over the first 5% of the dataset's rows
-    subset = dataset["train"].select(range(sample_size))
+    return dataset["train"].select(range(sample_size))
+
+
+def save_dataset_to_intermediate_checkpoint(
+    acc_chunks, embeddings, batch_size, down_scale
+):
+    import pyarrow as pa
+    from datasets import Dataset
+
+    table = pa.Table.from_arrays(
+        [
+            pa.array([chunk[0] for chunk in acc_chunks]),  # id
+            pa.array([chunk[1] for chunk in acc_chunks]),  # url
+            pa.array([chunk[2] for chunk in acc_chunks]),  # title
+            pa.array([chunk[3] for chunk in acc_chunks]),  # text
+            pa.array(embeddings),
+        ],
+        names=["id", "url", "title", "text", "embedding"],
+    )
+    path_parent_folder = f"{CHECKPOINT_DIR}/{MODEL_SLUG}-{batch_size}-{down_scale}"
+    dataset = Dataset(table)
+    dataset.save_to_disk(path_parent_folder)
+    EMBEDDING_CHECKPOINT_VOLUME.commit()
+    print(f"Saved checkpoint at {path_parent_folder}")
+
+
+def upload_result_to_hf(batch_size, down_scale):
+    import os
+    from huggingface_hub import HfApi
+    import time
+
+    path_parent_folder = f"{CHECKPOINT_DIR}/{MODEL_SLUG}-{batch_size}-{down_scale}"
+    api = HfApi(token=os.environ["HUGGINGFACE_TOKEN"])
+    api.create_repo(
+        repo_id=DATASET_HF_UPLOAD_REPO_NAME,
+        private=False,
+        repo_type="dataset",
+        exist_ok=True,
+    )
+
+    print(f"Pushing to hub {DATASET_HF_UPLOAD_REPO_NAME}")
+    start = time.perf_counter()
+    api.upload_folder(
+        folder_path=path_parent_folder,
+        repo_id=DATASET_HF_UPLOAD_REPO_NAME,
+        repo_type="dataset",
+        multi_commits=True,
+        multi_commits_verbose=True,
+    )
+
+    end = time.perf_counter()
+    print(f"Uploaded in {end-start}s")
+
+
+@stub.function(
+    image=Image.debian_slim().pip_install(
+        "datasets", "pyarrow", "hf_transfer", "huggingface_hub"
+    ),
+    volumes={
+        DATASET_DIR: DATASET_READ_VOLUME,
+        CHECKPOINT_DIR: EMBEDDING_CHECKPOINT_VOLUME,
+    },
+    timeout=86400,
+    secret=Secret.from_name("huggingface-credentials"),
+)
+def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
+    import datetime
+    import time
+
+    if UPLOAD_TO_HF and not SAVE_TO_DISK:
+        raise ValueError(
+            "Uploading to HF requires SAVE_TO_DISK to be set to true in case of intermediate failure."
+        )
+
+    dataset_chars = 19560538957  # sum(map(len, dataset["train"]["text"]))
+    subset = load_dataset_from_disk(down_scale)
     model = TextEmbeddingsInference()
-
-    print(f"Working with {sample_size} rows")
-
     text_chunks = generate_chunks_from_dataset(subset, chunk_size=512)
     batches = generate_batches(text_chunks, batch_size=batch_size)
 
     start = time.perf_counter()
     acc_chunks = []
     embeddings = []
-    for batch_chunks, batch_embeddings in model.embed.map(batches, order_outputs=False):
+    for resp in model.embed.map(batches, order_outputs=False, return_exceptions=True):
+        if isinstance(resp, Exception):
+            print(f"Exception: {resp}")
+            continue
+
+        batch_chunks, batch_embeddings = resp
+
         acc_chunks.extend(batch_chunks)
         embeddings.extend(batch_embeddings)
 
@@ -207,29 +266,21 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
         "extrapolated_duration": extrapolated_duration_cps_fmt,
     }
 
-    if PUSH_TO_HUB:
-        print(f"Pushing to hub {dataset_name}")
-        table = pa.Table.from_arrays(
-            [
-                pa.array([chunk[0] for chunk in acc_chunks]),  # id
-                pa.array([chunk[1] for chunk in acc_chunks]),  # url
-                pa.array([chunk[2] for chunk in acc_chunks]),  # title
-                pa.array([chunk[3] for chunk in acc_chunks]),  # text
-                pa.array(embeddings),
-            ],
-            names=["id", "url", "title", "text", "embedding"],
+    if SAVE_TO_DISK:
+        save_dataset_to_intermediate_checkpoint(
+            acc_chunks, embeddings, batch_size, down_scale
         )
-        pq.write_table(table, dataset_file)
-        dataset = load_dataset("parquet", data_files=dataset_file)
-        dataset.push_to_hub(dataset_name, token=os.environ["HUGGINGFACE_TOKEN"])
+
+    if UPLOAD_TO_HF:
+        upload_result_to_hf(batch_size, down_scale)
 
     return resp
 
 
 @stub.local_entrypoint()
 def main():
-    for scale, batch_size in product([0.25], [512 * 50]):
-        with open("benchmarks.json", "a") as f:
-            benchmark = embed_dataset.remote(down_scale=scale, batch_size=batch_size)
-            print(json.dumps(benchmark, indent=2))
-            f.write(json.dumps(benchmark, indent=2) + "\n")
+    scale = 0.001
+    batch_size = 512 * 150
+    with open("benchmarks.json", "a") as f:
+        benchmark = embed_dataset.remote(down_scale=scale, batch_size=batch_size)
+        f.write(json.dumps(benchmark, indent=2) + "\n")

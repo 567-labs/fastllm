@@ -278,7 +278,7 @@ Now that we've written a function to chunk our dataset into batches, let's see h
 
 Note that for us to be able to call our custom Modal `cls` object and call the `.embed` function with our batches of data, all it took was a `.map` function. Modal automatically handles the orchestration of the different containers, the serialization and deserialization of inputs between the different functions and the individual container lifecycle.
 
-Trying to implement this on our own would have been a serious challenge - you would be constrained by the physical number of GPUs you could afford, then configure these images to work on each GPU manually before writing the code to pass data in between each container while trying to optimize throughput and utilisation of each GPU. This is a non-trivial amount of work to accomplish. 
+Trying to implement this on our own would have been a serious challenge - you would be constrained by the physical number of GPUs you could afford, then configure these images to work on each GPU manually before writing the code to pass data in between each container while trying to optimize throughput and utilisation of each GPU. **This is a non-trivial amount of work to accomplish**. 
 
 ```python
 @stub.function(
@@ -304,6 +304,56 @@ def embed_dataset():
 
   return
 ```
+
+### Uploading Our Dataset
+
+Now that we've generated our new set of embeddings, we can upload it onto Hugging Face to share our new dataset. In order to do so, you'll need to create a Modal [secret](https://modal.com/docs/guide/secrets) for Hugging Face. This allows us to provide the environment variables that Hugging Face expects in order to interact with its hosting service. Let's start by first converting our `batch_embeddings` and `batch_chunks` arrays into a Hugging Face `Datasets` object. This helps to simplify a lot of the integration with hugging face.
+
+```python
+import pyarrow as pa
+
+table = pa.Table.from_arrays(
+  [
+      pa.array([chunk[0] for chunk in acc_chunks]),  # id
+      pa.array([chunk[1] for chunk in acc_chunks]),  # url
+      pa.array([chunk[2] for chunk in acc_chunks]),  # title
+      pa.array([chunk[3] for chunk in acc_chunks]),  # text
+      pa.array(embeddings),
+  ],
+  names=["id", "url", "title", "text", "embedding"],
+) 
+
+dataset = Dataset(table)
+```
+
+Since our dataset is rather large, we can implement an intermediate checkpoint by saving our dataset into a Modal volume before proceeding with the upload. 
+
+```python
+checkpoint_volume = Volume.persisted("checkpoint")
+checkpoint_dir = "/checkpoint"
+hf_dataset_name = "567-labs/wikipedia-embeddings"
+
+@stub.function(
+    image=Image.debian_slim().pip_install("datasets"),
+    volumes={cache_dir: volume,checkpoint_dir:checkpoint_volume},
+    timeout=86400, # Increase timeout to 24 hours
+    secret=Secret.from_name("huggingface-credentials"),
+)
+def embed_dataset():
+	# ... Rest of Code
+  from datasets import Dataset
+	dataset = Dataset(table)
+	checkpoint_path = f"{checkpoint_dir}/wikipedia-embeddings"
+	dataset.save_to_disk(checkpoint_path)
+	checkpoint_volume.commit()
+	
+	dataset.push_to_hub(hf_dataset_name)
+	
+```
+
+With this, we'll now be able to automatically embed and upload our embeddings onto hugging face when we run our script. What makes this even better is that we've got an intermediate checkpoint by simply adding in a few lines of code that allows us to resume uploads in the event that we get any unexpected errors.
+
+Based on our initial runs, this takes around 1.5 hrs to complete.
 
 ### Running the Code
 
@@ -344,7 +394,7 @@ If you'd like to change the frequency, just change the schedule parameter, re-ru
 
 ## Scaling Out
 
-Now that we've seen how to run a simple batch job using Modal, let's consider how we might modify our embedding function to speed up the time taken. Currently if we run our script above, embedding all of wikipedia will take around 8 hours with a batch size of 512.
+Now that we've seen how to run a simple batch job using Modal, let's consider how we might modify our embedding function to speed up the time taken. Currently if we run our script above, embedding all of wikipedia will take around 8 hours with a batch size of 512. 
 
 To do so, there are two things that we can do - increase the number of containers we're using and rewriting our `embed` function to take advantage of asynchronous processing within the container. Let's tackle them one by one and see what performance benefits we can get.
 
@@ -395,11 +445,49 @@ async def embed(self, chunks):
 
 By doing so, we can increase the batch size that each container can process by a lot - in our case, we can now process almost 25600 chunks per container at any given time, resulting in a **33x increase in the capacity of each container** from our original batch size of 768. 
 
-With these two optimisations, we can now process the entirety of Wikipedia in just under 2 hours, resulting in almost 80% decrease in time taken to process the entire job.
+With these two optimisations, we can now process the entirety of Wikipedia in just under 15 minutes, resulting in a decrease in time required by more than 95%.
+
+## HF_Transfer
+
+We can speed up the file upload speed by using [hf_transfer](https://github.com/huggingface/hf_transfer). This is a tool which allows us to circumvent the rate limits imposed on upload speeds by python. More importantly, it allows us to take advantage of the high network speeds that Modal provides, potentially reaching upload speeds of up to 500mb/s. 
+
+In order to support the `hf_transfer` package, we need to first install it by updating our custom image definition and setting the `HF_HUB_ENABLE_HF_TRANSFER` environment variable to be `1` as seen below
+
+```python
+
+@stub.function(
+    image=Image.debian_slim().pip_install(
+        "datasets", "pyarrow", "tqdm", "hf_transfer", "huggingface_hub"
+    ),
+    volumes={cache_dir: volume,checkpoint_volume_path:checkpoint_volume},
+    timeout=86400,
+    secret=Secret.from_name("huggingface-credentials"),
+)
+def embed_dataset():
+  # rest of code
+  os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
+```
+
+Once we've done so, we then need to modify our upload logic so that we utilise the `upload_from_file` function instead. This gives us the option of using the new experimental feature `multi_commits`, which splits up the file uploads into numerous individual files before restoring it server side.
+
+```
+os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
+api = HfApi(token=os.environ["HUGGINGFACE_TOKEN"])
+api.create_repo(repo_id=hf_dataset_name, private=False, repo_type="dataset",exist_ok=True)
+api.upload_folder(
+    folder_path=path_parent_folder,
+    repo_id = hf_dataset_name,
+    repo_type="dataset",
+    multi_commits=True,
+    multi_commits_verbose=True
+)
+```
+
+With this new optimisation, we can bring down the time taken for file uploads from our original 1.5hrs to around 30 minutes, shaving off almost 70% of the original time taken to upload the data. 
 
 # Conclusion
 
-Today's we went through a few foundational concepts that are key to taking advantage of Modal's full capabilities - namely stubs and volumes and how they can be used in tandem to run massive parallelizable jobs at scale.
+Today's we went through a few foundational concepts that are key to taking advantage of Modal's full capabilities - namely stubs and volumes and how they can be used in tandem to run massive parallelizable jobs at scale. 
 
 Having the ability to scale unlocks new business use cases for companies that can now iterate on production models more quickly and efficiently. By shortening the feedback loop with Modal's serverless gpus, companies are then freed up to focus on experimentation and deployment.
 
