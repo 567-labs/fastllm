@@ -4,7 +4,6 @@ import modal
 import pathlib
 from finetune_OnlineContrastiveLoss import finetune
 from datetime import datetime
-import argparse
 
 MODEL_ID = "BAAI/bge-base-en-v1.5"
 
@@ -64,6 +63,3 @@ def main():
     score, model = finetune_modal.remote()
 
     print("Post Train eval score", score)
-
-    # Save the model to a local directory, which can be loaded using SentenceTransformers("./finetuned-embeddings-{XXXXXXX}")
-    model.save(f"./finetuned-embeddings-{int(datetime.now().timestamp())}")
