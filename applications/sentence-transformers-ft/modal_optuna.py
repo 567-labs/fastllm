@@ -10,9 +10,11 @@ import torch
 
 # Modal constants
 GPU_CONFIG = "a10g"
-N_GPU = 10
-N_TRIALS = 10  # Number of trials PER gpu. Total trials = N_GPU * N_TRIALS
 USE_CACHED_IMAGE = True  # enable this to download the dataset and base model into the image for faster repeated runs
+
+#### Total number of trials = N_GPU * N_TRIALS
+N_GPU = 10
+N_TRIALS = 5  # Number of trials PER gpu
 
 
 # Functions for Modal Image build steps (cache the dataset)
@@ -30,11 +32,13 @@ if USE_CACHED_IMAGE:
     image = image.run_function(download_dataset)
 
 
+#### We use a modal NFS resource to for the backend storage system for Optuna
 stub.nfs_volume = modal.NetworkFileSystem.new()
 JOURNAL_PATH = "/root/cache/journal.log"
 STUDY_NAME = "sentence-transformers-ft study"
-VOL_MOUNT_PATH = pathlib.Path("/vol")
 
+#### We store the actual trial results in a separate persistent Modal volume
+VOL_MOUNT_PATH = pathlib.Path("/vol")
 volume = modal.Volume.persisted(
     f"sentence-transformers-ft-optuna-{int(datetime.now().timestamp())}"
 )
@@ -42,16 +46,18 @@ volume = modal.Volume.persisted(
 
 @stub.function(image=image, network_file_systems={"/root/cache": stub.nfs_volume})
 def initialize_optuna():
+    #### We initialize the JournalStorage object with NFS which is used as the backend for Optuna
     storage = optuna.storages.JournalStorage(
         optuna.storages.JournalFileStorage(JOURNAL_PATH)
     )
+    #### Create the study object inside JournalStorage which is used to track Optuna trials
     storage.create_new_study(
         study_name=STUDY_NAME, directions=[optuna.study.StudyDirection.MAXIMIZE]
     )
 
 
 def objective(trial: optuna.Trial):
-    # 1/3 to double embedding count
+    #### The objective function for optuna, simply calls the finetune function with various hyperparameters
 
     # Optuna Hyperparameters
     dense_out_features = trial.suggest_int("dense_out_features", 100, 700)
@@ -77,6 +83,7 @@ def objective(trial: optuna.Trial):
 
     eval_score, _ = finetune(
         model_id=model_id,
+        # all finetuning trials results will be saved in modal volume
         save_path=VOL_MOUNT_PATH / f"trial-{trial.number}",
         dense_out_features=dense_out_features,
         epochs=epochs,
@@ -84,14 +91,14 @@ def objective(trial: optuna.Trial):
         activation_function=activation_function,
         scheduler=scheduler,
     )
+    # return the eval_score as Optuna is optimizing for this
     return eval_score
 
 
 @stub.function(
     image=image,
     gpu=GPU_CONFIG,
-    # TODO: increase timeout
-    timeout=15000,
+    timeout=30000, # if timeout is too low, study may not finish
     volumes={VOL_MOUNT_PATH: volume},
     _allow_background_volume_commits=True,
     network_file_systems={"/root/cache": stub.nfs_volume},
@@ -118,28 +125,29 @@ def run_optuna(i: int):
     _allow_background_volume_commits=True,
 )
 def conclude_optuna():
-    # TODO: prints trials to keep logs in modal
     storage = optuna.storages.JournalStorage(
         optuna.storages.JournalFileStorage(JOURNAL_PATH)
     )
     study = optuna.load_study(study_name=STUDY_NAME, storage=storage)
 
+    # Log trials to Modal
     trials = study.get_trials()
     print("### All Trials ###\n", trials)
 
+    # Saves the trials as a CSV object in Modal volume.
+    # Can be retrieved using: `modal volume get sentence-transformers-ft-optuna-<timestamp> /trials.csv .`
     df = study.trials_dataframe()
     df.to_csv(VOL_MOUNT_PATH / "trials.csv")
 
     best_trial = study.best_trial
     print("### Best Trial ID:", best_trial._trial_id)
-    # TODO: find the highest trial number, get that directory, load model from that directory, return model
     return trials
 
 
 @stub.local_entrypoint()
 def main():
     initialize_optuna.remote()
-    # Run Optuna optimization
+    # Run distributed Optuna optimization using Modal's map() function
     for i in run_optuna.map(range(1, N_GPU + 1)):
         print(f"Finished training on gpu container {i}.")
     print(conclude_optuna.remote())
