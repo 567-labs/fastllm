@@ -17,6 +17,7 @@ MODEL_IDS = [
     "sentence-transformers/multi-qa-mpnet-base-dot-v1",
     "sentence-transformers/multi-qa-distilbert-cos-v1",
     "llmrails/ember-v1",
+    "krunchykat/bge-base-en-v1.5-ft-quora",
 ]
 
 stub = modal.Stub("embeddings-eval")
@@ -34,27 +35,31 @@ image = (
 )
 
 
-@stub.function(image=image, gpu=GPU_CONFIG, timeout=1000, concurrency_limit=7)
+@stub.function(image=image, gpu=GPU_CONFIG, timeout=1000, concurrency_limit=10)
 def eval(model_id: str):
     # Quora pairs dataset: https://huggingface.co/datasets/quora
     # Quora pairs dataset only contains a "train" split in huggingface
     dataset = load_dataset(DATASET_ID, split="train")
-    examples = [
+
+    # Only evaluate on test set, use the same split seed used to train your finetuned model if applicable
+    train_test_split = dataset.train_test_split(test_size=0.1, seed=42)
+    test_dataset = train_test_split["test"]
+    test_examples = [
         InputExample(
             texts=[
-                dataset[i]["questions"]["text"][0],
-                dataset[i]["questions"]["text"][1],
+                test_dataset[i]["questions"]["text"][0],
+                test_dataset[i]["questions"]["text"][1],
             ],
-            label=int(dataset[i]["is_duplicate"]),
+            label=int(test_dataset[i]["is_duplicate"]),
         )
-        for i in range(dataset.num_rows // 5)
+        for i in range(test_dataset.num_rows)
     ]
     evaluator = evaluation.BinaryClassificationEvaluator.from_input_examples(
-        examples, show_progress_bar=True
+        test_examples, show_progress_bar=True
     )
 
     model = SentenceTransformer(model_id)
-    
+
     metrices = evaluator.compute_metrices(model)
     print(f"Metrices for {model_id}\n{metrices}")
 
@@ -77,7 +82,7 @@ def main():
     metrices_list = eval.map(MODEL_IDS)
 
     # Open the CSV file once, outside the loop
-    with open("evals_metrics.csv", "w", newline="") as csvfile:
+    with open("eval_metrics.csv", "w", newline="") as csvfile:
         # Initialize the CSV writer
         writer = None
 
