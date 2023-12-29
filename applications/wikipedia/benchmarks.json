@@ -631,3 +631,11 @@
   "characters_per_sec": 16662162,
   "extrapolated_duration": "0:19:33.949633"
 }
+{
+  "downscale": 0.001,
+  "batch_size": 76800,
+  "n_gpu": 100,
+  "duration_mins": 0.6243407927166668,
+  "characters_per_sec": 3742524,
+  "extrapolated_duration": "1:27:06.563399"
+}
