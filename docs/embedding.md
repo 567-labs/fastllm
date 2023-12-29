@@ -110,7 +110,7 @@ modal run download.py
 
 ### Text Embedding Inference
 
-For our embed our function, we'll be using the Hugging Face [Text Embedding Inference](https://github.com/huggingface/text-embeddings-inference) package. We'll walk through how to leverage caching of model weights by defining a custom modal image, manage container state through a Modal `cls` object methods and lastly, how to leverage this new container in our other functions.
+For our embedding function, we'll be using the Hugging Face [Text Embedding Inference](https://github.com/huggingface/text-embeddings-inference) package. We'll walk through how to leverage caching of model weights by defining a custom modal image, manage container state through a Modal `cls` object methods and lastly, how to leverage this new container in our other functions.
 
 #### Parameters
 
@@ -187,7 +187,7 @@ A modal class allows us to have more fine-grained control over the behaviour of 
 
 In our case, we spawn a server once when the container boots up. This state is then preserved in preparation for future requests that other functions might make so that we only incur the cost of initialising a server once. 
 
-All the guesswork of managing the life cycle is taken out of the equation for you with Modal by just defining two functions and using a single decorator. Not only so, we can also configure our stub object to run with a specific image and an attached GPU by modifying the `stub.cls` parameters
+All the guesswork of managing the life cycle is taken out of the equation for you with Modal by just defining two functions and using a single decorator. Not only so, we can also configure our stub class object to run with a specific image and an attached GPU by modifying the `stub.cls` parameters
 
 ```python
 from modal import gpu
@@ -287,7 +287,7 @@ Trying to implement this on our own would have been a serious challenge - you wo
     timeout=5000,
 )
 def embed_dataset():
-	dataset = load_from_disk(f"{cache_dir}/wikipedia")
+  dataset = load_from_disk(f"{cache_dir}/wikipedia")
   model = TextEmbeddingsInference()
   
   ttl_size = 19560538957 # This is the size of the dataset
