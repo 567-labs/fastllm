@@ -47,3 +47,53 @@ modal run main.py
 ```
 
 Note that we utilize 2 volumes in our dataset script - one for reading from and another to write the files to upload to.
+
+# Debugging
+
+## Verifying that the Dataset has been downloaded
+
+> Note that the `size` of the volume listed in the table for the directories. Our wikipedia directory is listed as having a size of 56B but the multiple .arrow files inside it should tell you that it in fact contains much larger files
+
+Once we've downloaded the dataset, we can confirm that it has been downloaded and saved into our `embedding-wikipedia` volume at the path `/wikipedia` by runnning the command 
+
+```
+modal volume ls embedding-wikipedia
+```
+
+This should produce a table that looks like this. 
+
+```
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━┓
+┃ filename                                            ┃ type ┃ created/modified          ┃ size      ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━┩
+│ wikipedia                                           │ dir  │ 2023-12-02 10:57:44+01:00 │ 56 B      │
+└─────────────────────────────────────────────────────┴──────┴───────────────────────────┴───────────┘
+```
+
+We can then view what this folder looks like inside by appending the `/wikipedia` to our command
+
+```
+modal volume ls embedding-wikipedia /wikipedia
+```
+
+This will then show the files inside the `/wikipedia` 
+
+```
+Directory listing of '/wikipedia' in 'embedding-wikipedia'
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┓
+┃ filename                    ┃ type ┃ created/modified          ┃ size    ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━┩
+│ wikipedia/train             │ dir  │ 2023-12-02 10:58:12+01:00 │ 4.0 KiB │
+│ wikipedia/dataset_dict.json │ file │ 2023-12-02 10:57:44+01:00 │ 21 B    │
+└─────────────────────────────┴──────┴───────────────────────────┴─────────┘
+```
+
+## Removing Files
+
+> Note that if you're looking to remove a directory, you need to supply the `--recursive` flag to the command for it to work. 
+
+If you'll like to save on storage costs when using volumes, you can use the modal cli to easily remove files. 
+
+```
+modal volume rm embedding-wikipedia /wikipedia --recursive
+```
