@@ -18,7 +18,7 @@ Draft blog posts can be found in `/docs/finetune-embedding.md` and `/docs/finetu
 
 An example model that has been fine-tuned with this repo can be found here: <https://huggingface.co/krunchykat/bge-base-en-v1.5-ft-quora>
 
-`krunchykat/bge-base-en-v1.5-ft-quora` was trained with the following hyperparameters:
+`krunchykat/bge-base-en-v1.5-ft-quora` was trained with the following hyperparameters using Modal:
 
         * model_id: str = "BAAI/bge-small-en-v1.5"
         * epochs: int = 10
@@ -55,7 +55,7 @@ You can use this model like any other HuggingFace compatible model with the Sent
 
 ## Instructions
 
-### Run locally (`finetune_OnlineContrastiveLoss.py`)
+### Run locally 
 
 1. Make sure the hyperparameters you want are set correctly. Then initiate training with
 
@@ -65,12 +65,12 @@ You can use this model like any other HuggingFace compatible model with the Sent
 
 2. The model, evals, and checkpoints will be automatically saved to `./output` path in your local directory.
 
-### Run with Modal (`modal_main.py`)
+### Run with Modal 
 
-1. Make sure the hyperparameters you want are set correctly. Then initiate training with
+1. Make sure the hyperparameters you want are set correctly in [modal_main.py](./modal_main.py). Then initiate training with
 
         ```bash
-        modal run modal-main.py
+        modal run modal_main.py
         ```
 
 2. After the modal app is initiated, you should see the app running in the Modal dashboard as well as a new storage volume where your finetuned model/metrics will be stored. This volume will be named `sentence-transformers-ft-{UNIX_TIMESTAMP}` Once training finishes, you can download the volume to your local directory by running. This saves your model, checkpoints, and evals to your local computer.
@@ -79,6 +79,10 @@ You can use this model like any other HuggingFace compatible model with the Sent
         mkdir output
         modal volume get sentence-transformers-ft-{UNIX_TIMESTAMP} /"**" ./output --force
         ```
+
+        //Remember, you can find the {UNIX_TIMESTAMP} in the Modal dashboard "storage tab"
+
+Example pre-train metrics can be found [here](./examples/binary_classification_evaluation_pre_train_results.csv) and example post-train metrics can be found [here](./examples/binary_classification_evaluation_post_train_results.csv)
 
 3. You're finetuned model will be stored in `./output/{BASE_MODEL}-ft`. You can upload it to huggingface by following these procedures
 
@@ -92,6 +96,45 @@ You can use this model like any other HuggingFace compatible model with the Sent
 
     d. You can now use your Huggingface model like any other Huggingface compatible sentence transformer. This is an example model I uploaded: <https://huggingface.co/krunchykat/bge-base-en-v1.5-ft-quora>
 
-### Run with optuna (TODO)
+### Run with optuna 
+
+1. Make sure the hyperparameters you want are set correctly in [modal_optuna.py](./modal_optuna.py). Then initiate training with
+
+        ```bash
+        modal run modal_optuna.py
+        ```
+2. After training finishes, you can view all trials' metrics by downloading the trials csv data using Modal Volumes cli
+
+        ```bash
+        modal volume get sentence-transformers-ft-optuna-{UNIX_TIMESTAMP} ./trials.csv . 
+        ```
+
+        //Remember, you can find the {UNIX_TIMESTAMP} in the Modal dashboard "storage tab"
+
+This will return something like [trials.csv](./examples/trials.csv)
+
+3. List the specific finetuned model, metrics, and checkpoints for a specific trial using
+
+        ```bash
+        modal volume ls sentence-transformers-ft-optuna-{UNIX_TIMESTAMP} trial-{TRIAL_NUMBER}
+        ```
+
+4. Download a trial's finetuned model, metrics, and checkpoints using this command.
+
+        ```bash
+        modal volume get sentence-transformers-ft-optuna-{UNIX_TIMESTAMP} /trial-{TRIAL_NUMBER}/"**" ./output
+        ```
+
+5. Follow the steps in [#run-with-modal](#run-with-modal) to upload to huggingface
 
 ### Run Evals on multiple embedding models
+
+1. Specify the embedding models you want to evaluate in [eval.py](./eval.py).
+
+2. Run with Modal
+
+        ```python
+        modal run eval.py
+        ```
+
+3. Metrics will be saved locally in `eval_metrics.csv`. An example can be found [here](./examples/eval_metrics.csv)
