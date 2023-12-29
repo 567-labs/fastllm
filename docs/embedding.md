@@ -27,7 +27,7 @@ Before we dive into the code, let's take a look at some of the key concepts that
 
 ### Stubs
 
-A Stub is the most basic concept in Modal. We can declare it using just 2 lines of code.
+A Stub is the most basic concept in Modal — it's a description of how to create a Modal application. We can declare it using just 2 lines of code.
 
 ```python
 import modal
@@ -110,7 +110,7 @@ modal run download.py
 
 ### Text Embedding Inference
 
-In order to embed our function, we'll be using the Hugging Face [Text Embedding Inference](https://github.com/huggingface/text-embeddings-inference) package. We'll walk you through how to leverage caching of model weights by defining a custom modal image, manage container state through a Modal `cls` object methods and lastly, how to leverage this new container in our other functions.
+For our embedding function, we'll be using the Hugging Face [Text Embedding Inference](https://github.com/huggingface/text-embeddings-inference) package. We'll walk through how to leverage caching of model weights by defining a custom modal image, manage container state through a Modal `cls` object methods and lastly, how to leverage this new container in our other functions.
 
 #### Parameters
 
@@ -179,15 +179,15 @@ By using the `run_function` property, we're able to execute the `download_model`
 
 #### Creating our Modal Class
 
-A modal class allows us to have more fine-grained control over the behaviour of our container. This allows us to separate different portions of the container life cycle
+A modal class allows us to have more fine-grained control over the behaviour of our container. We can separate out the following portions of the container life cycle:
 
 - What to do just once when the container boots up using the  `__enter__` 
 - What should we do when the container is called by other functions by defining  `@method` calls
 - What to do once the container is shut down using the `__exit__` 
 
-More specifically, in our case, we spawn a server once when the container boots up. This state is then preserved in preparation for future requests that other functions might make so that we only incur the cost of initialising a server once. 
+In our case, we spawn a server once when the container boots up. This state is then preserved in preparation for future requests that other functions might make so that we only incur the cost of initialising a server once. 
 
-All the guesswork of managing the life cycle is taken out of the equation for you with Modal by just defining two functions and using a single decorator. Not only so, we can configure our object to run with a specific image and an attached GPU by modifying the `stub.cls` parameters
+All the guesswork of managing the life cycle is taken out of the equation for you with Modal by just defining two functions and using a single decorator. Not only so, we can also configure our stub class object to run with a specific image and an attached GPU by modifying the `stub.cls` parameters
 
 ```python
 from modal import gpu
@@ -228,9 +228,14 @@ class TextEmbeddingsInference:
 
 ### Generating Embeddings
 
-Let's take stock of what we've achieved so far. We first created a simple Modal stub. Then, we created a persistent volume that could store data in between our script runs and downloaded the entirety of English Wikipedia into it. Next, we put together our first Modal`cls` object using the Text Embedding Inference image from docker and attached a A10G GPU to the class. Lastly, we defined a method we could call in other stub functions using the `@method` decorator.
+Let's take stock of what we've achieved so far:
 
-Now, let's see how to use the dataset that we downloaded with our container to embed all of wikipedia. We'll first write a small function to split our dataset into batches before seeing how we can get our custom Modal`cls` object to embed all of the chunks.
+- We first created a simple Modal stub.
+- Then, we created a persistent volume that could store data in between our script runs and downloaded the entirety of English Wikipedia into it.
+- Next, we put together our first Modal `cls` object using the Text Embedding Inference image from docker and attached a A10G GPU to the class.
+- Lastly, we defined a method we could call in other stub functions using the `@method` decorator.
+
+Now, let's see how to use the dataset that we downloaded with our container to embed all of wikipedia. We'll first write a small function to split our dataset into batches before seeing how we can get our custom Modal `cls` object to embed all of the chunks.
 
 #### Chunking Text
 
@@ -282,22 +287,22 @@ Trying to implement this on our own would have been a serious challenge - you wo
     timeout=5000,
 )
 def embed_dataset():
-	dataset = load_from_disk(f"{cache_dir}/wikipedia")
+  dataset = load_from_disk(f"{cache_dir}/wikipedia")
   model = TextEmbeddingsInference()
   
   ttl_size = 19560538957 # This is the size of the dataset
   sample_size = int(ttl_size * 0.01) # We work with 1% of the dataset 
   subset = dataset["train"].select(range(sample_size))
   
-	text_chunks = generate_chunks_from_dataset(subset, chunk_size=512)
+  text_chunks = generate_chunks_from_dataset(subset, chunk_size=512)
   batches = generate_batches(text_chunks, batch_size=batch_size)
   acc_chunks = []
   embeddings = []
   for batch_chunks, batch_embeddings in model.embed.map(batches, order_outputs=False):
       acc_chunks.extend(batch_chunks)
       embeddings.extend(batch_embeddings)
- 
-	return
+
+  return
 ```
 
 ### Running the Code
@@ -307,7 +312,7 @@ We define a `local_entrypoint` to call this new stub function in our `main.py` f
 ```python
 @stub.local_entrypoint()
 def main():
-	embed_dataset()
+    embed_dataset()
 ```
 
 This allows us to run this entire script using the command
