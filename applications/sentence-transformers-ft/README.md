@@ -53,6 +53,9 @@ You can use this model like any other HuggingFace compatible model with the Sent
         emb = model.encode("hello world")
         ```
 
+We benchmark this fine-tuned model to other base sentence embedding models in [eval_metrics.csv](./examples/eval_metrics.csv).
+Note that we only use the test set to evaluate in the [eval script](./eval.py)
+
 ## Instructions
 
 ### Run locally 
