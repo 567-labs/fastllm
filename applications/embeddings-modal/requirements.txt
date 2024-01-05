@@ -1,0 +1,6 @@
+sentence-transformers
+modal
+fastapi
+pydantic
+
+truss
