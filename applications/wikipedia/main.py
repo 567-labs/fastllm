@@ -138,7 +138,7 @@ class TextEmbeddingsInference:
             for chunk_batch in generate_batches(chunks, batch_size=BATCH_SIZE)
         ]
 
-        embeddings = np.concatenate(await asyncio.gather(*coros))
+        embeddings = np.vstack(await asyncio.gather(*coros))
         return chunks, embeddings
 
 
@@ -279,7 +279,7 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
 
 @stub.local_entrypoint()
 def main():
-    scale = 0.001
+    scale = 0.01
     batch_size = 512 * 150
     with open("benchmarks.json", "a") as f:
         benchmark = embed_dataset.remote(down_scale=scale, batch_size=batch_size)
