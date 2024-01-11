@@ -64,6 +64,9 @@ def spawn_server() -> subprocess.Popen:
 
 
 def download_model():
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
     spawn_server()
 
 
@@ -73,8 +76,8 @@ tei_image = (
         add_python="3.10",
     )
     .dockerfile_commands("ENTRYPOINT []")
+    .pip_install("httpx", "transformers")
     .run_function(download_model, gpu=GPU_CONFIG)
-    .pip_install("httpx")
 )
 
 with tei_image.imports():
@@ -125,20 +128,65 @@ class TextEmbeddingsInference:
     def __exit__(self, _exc_type, _exc_value, _traceback):
         self.process.terminate()
 
-    async def _embed(self, chunk_batch):
+    async def _embed(self, chunk_batch, retries=1):
         texts = [chunk[3] for chunk in chunk_batch]
         res = await self.client.post("/embed", json={"inputs": texts})
         return np.array(res.json())
+
+    def _filter_large_tokens(self, chunks):
+        from transformers import AutoTokenizer
+
+        tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+
+        new_chunk_batch = []
+        for chunk in chunks:
+            # Split text into two portions since max input size of encoder is 512 tokens
+            s1 = chunk[3][: len(chunk[3]) // 2]
+            s2 = chunk[3][len(chunk[3]) // 2 :]
+            tokens = tokenizer.encode(s1) + tokenizer.encode(s2)
+
+            if len(tokens) <= 512:
+                new_chunk_batch.append(chunk)
+            else:
+                print(f"Identified issue with {chunk[3]}")
+                new_chunk_batch.append(
+                    [
+                        chunk[0],
+                        chunk[1],
+                        chunk[2],
+                        s1 if len(s1) <= 512 else s1[: len(s1) // 2],
+                    ]
+                )
+        return new_chunk_batch
 
     @method()
     async def embed(self, chunks):
         """Embeds a list of texts.  id, url, title, text = chunks[0]"""
         coros = [
             self._embed(chunk_batch)
-            for chunk_batch in generate_batches(chunks, batch_size=BATCH_SIZE)
+            for chunk_batch in generate_batches(
+                self._filter_large_tokens(chunks), batch_size=BATCH_SIZE
+            )
         ]
 
-        embeddings = np.vstack(await asyncio.gather(*coros))
+        coros_results = await asyncio.gather(*coros)
+        # Filter out items that don't have a length of 384 and count them
+        filtered_results = []
+        invalid_items = []
+        for batch in coros_results:
+            if batch.ndim == 0:
+                print(f"Found an empty batch of {batch}")
+                continue
+            filtered_batch = [item for item in batch if len(item) == 384]
+            invalid_batch = [item for item in batch if len(item) != 384]
+            filtered_results.extend(filtered_batch)
+            invalid_items.extend(invalid_batch)
+        embeddings = np.array(filtered_results)
+
+        if len(invalid_items) > 0:
+            print(f"Filtered out {len(invalid_items)} items")
+            print(invalid_items)
+
         return chunks, embeddings
 
 
@@ -164,6 +212,13 @@ def save_dataset_to_intermediate_checkpoint(
 ):
     import pyarrow as pa
     from datasets import Dataset
+    import os
+    import shutil
+
+    assert (
+        len(acc_chunks) == len(embeddings)
+    ), f"Mismatch between chunks and generated embeddings - chunks: {len(acc_chunks)} items, embedding: {len(embeddings)} "
+    print("Starting to generate data now")
 
     table = pa.Table.from_arrays(
         [
@@ -175,7 +230,11 @@ def save_dataset_to_intermediate_checkpoint(
         ],
         names=["id", "url", "title", "text", "embedding"],
     )
+    print(f"Created table of size {len(embeddings)}")
     path_parent_folder = f"{CHECKPOINT_DIR}/{MODEL_SLUG}-{batch_size}-{down_scale}"
+
+    if os.path.exists(path_parent_folder):
+        shutil.rmtree(path_parent_folder)
     dataset = Dataset(table)
     dataset.save_to_disk(path_parent_folder)
     EMBEDDING_CHECKPOINT_VOLUME.commit()
@@ -249,6 +308,7 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
         acc_chunks.extend(batch_chunks)
         embeddings.extend(batch_embeddings)
 
+    print(f"Generated a total of {len(embeddings)}")
     end = time.perf_counter()
 
     duration = end - start
@@ -265,8 +325,10 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
         "characters_per_sec": characters_per_sec,
         "extrapolated_duration": extrapolated_duration_cps_fmt,
     }
+    print(f"Embedding Job Completed. Here are the stats: \n{json.dumps(resp)}")
 
     if SAVE_TO_DISK:
+        print("Starting to save intermediate checkpoint to disk")
         save_dataset_to_intermediate_checkpoint(
             acc_chunks, embeddings, batch_size, down_scale
         )
@@ -279,7 +341,7 @@ def embed_dataset(down_scale: float = 0.005, batch_size: int = 512 * 50):
 
 @stub.local_entrypoint()
 def main():
-    scale = 0.01
+    scale = 1
     batch_size = 512 * 150
     with open("benchmarks.json", "a") as f:
         benchmark = embed_dataset.remote(down_scale=scale, batch_size=batch_size)
