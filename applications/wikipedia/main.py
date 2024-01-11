@@ -187,6 +187,7 @@ class TextEmbeddingsInference:
             print(f"Filtered out {len(invalid_items)} items")
             print(invalid_items)
 
+
         return chunks, embeddings
 
 
