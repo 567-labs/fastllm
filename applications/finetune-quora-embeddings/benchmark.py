@@ -27,8 +27,8 @@ image = Image.debian_slim().pip_install(
 
 
 @stub.function(image=image, volumes={DATASET_DIR: DATASET_VOLUME})
-def download_dataset():
-    from datasets import load_dataset
+def generate_dataset_split():
+    from datasets import load_dataset, DatasetDict
 
     dataset_path = f"{DATASET_DIR}/{DATASET_NAME}"
 
@@ -38,7 +38,17 @@ def download_dataset():
     dataset = load_dataset(
         DATASET_NAME, DATASET_CONFIG, split=DATASET_SPLIT, num_proc=6
     )
-    dataset.save_to_disk(dataset_path)
+
+    train_test_split = dataset.train_test_split(test_size=0.3, seed=42)
+    train = train_test_split["train"]
+    test_val_split = train_test_split["test"].train_test_split(test_size=0.5, seed=42)
+    test = test_val_split["train"]
+    val = test_val_split["test"]
+
+    new_ds = DatasetDict({"train": train, "test": test, "val": val})
+
+    new_ds.save_to_disk(dataset_path)
+
     DATASET_VOLUME.commit()
 
 
@@ -58,116 +68,34 @@ def generate_quora_input_example(examples):
 
 
 @stub.function(
-    image=image,
-    volumes={DATASET_DIR: DATASET_VOLUME},
-    secret=Secret.from_name("cohere"),
-)
-def benchmark_cohere():
-    from cohere import Client
-    from cohere.responses import Embeddings
-    from datasets import load_from_disk
-    from sentence_transformers import util
-    from sklearn.metrics import accuracy_score, precision_score, recall_score
-    from tabulate import tabulate
-
-    dataset = load_from_disk(f"{DATASET_DIR}/{DATASET_NAME}")
-    train_test_split = dataset.train_test_split(test_size=TEST_PERCENTAGE, seed=42)
-    test_dataset = train_test_split["test"].select(range(400))
-    co = Client(os.environ["COHERE_API_KEY"])
-
-    thresholds = [0.3, 0.5, 0.7, 0.9]
-
-    computed_values = []
-    for input_type in [
-        "search_document",
-        "search_query",
-        "classification",
-        "clustering",
-    ]:
-        predictions = []
-        actual_label = []
-        values = []
-        for row in test_dataset:
-            response: Embeddings = co.embed(
-                texts=row["questions"]["text"],
-                model="embed-english-v3.0",
-                input_type=input_type,
-            )
-            e1, e2 = response.embeddings
-            cosine_scores = util.cos_sim(e1, e2)
-            predictions.append(cosine_scores)
-            actual_label.append(1 if row["is_duplicate"] else 0)
-
-        for threshold in thresholds:
-            pred_label = [1 if i >= threshold else 0 for i in predictions]
-            accuracy = accuracy_score(actual_label, pred_label)
-            precision = precision_score(actual_label, pred_label)
-            recall = recall_score(actual_label, pred_label)
-            values.append([threshold, accuracy, recall, precision])
-        computed_values.append(values)
-
-    headers = ["Threshold", "Accuracy", "Precision", "Recall"]
-    print(
-        tabulate(
-            [
-                [
-                    tabulate(computed_values[0], headers, tablefmt="heavy_outline"),
-                    tabulate(computed_values[1], headers, tablefmt="heavy_outline"),
-                ]
-            ],
-            ["Search Document", "Search Query"],
-            tablefmt="simple",
-        )
-    )
-    print(
-        tabulate(
-            [
-                [
-                    tabulate(computed_values[2], headers, tablefmt="heavy_outline"),
-                    tabulate(computed_values[3], headers, tablefmt="heavy_outline"),
-                ]
-            ],
-            ["Classification", "Clustering"],
-            tablefmt="simple",
-        ),
-    )
-
-
-@stub.function(
     image=image, volumes={DATASET_DIR: DATASET_VOLUME}, gpu=GPU_CONFIG, timeout=1200
 )
 def benchmark_mteb_model(model_name):
     from datasets import load_from_disk
     from sentence_transformers import util, SentenceTransformer
     from sklearn.metrics import roc_auc_score
+    import time
+    import numpy as np
 
     dataset = load_from_disk(f"{DATASET_DIR}/{DATASET_NAME}")
-    train_test_split = dataset.train_test_split(test_size=TEST_PERCENTAGE, seed=42)
-    test_dataset = train_test_split["test"].select(range(MAXIMUM_ELEMENTS_TO_TEST))
+    val_dataset = dataset["val"]
 
     model = SentenceTransformer(model_name)
+    start = time.time()
 
-    predictions = []
-    actual_label = []
+    # Process texts in batches
+    texts1 = [row["questions"]["text"][0] for row in val_dataset]
+    texts2 = [row["questions"]["text"][1] for row in val_dataset]
+    embeddings1 = model.encode(texts1, convert_to_tensor=True)
+    embeddings2 = model.encode(texts2, convert_to_tensor=True)
+    cosine_scores = util.cos_sim(embeddings1, embeddings2)
+    optimized_predictions = np.diag(cosine_scores.cpu()).tolist()
+    optimized_labels = [1 if row["is_duplicate"] else 0 for row in val_dataset]
 
-    for idx, row in enumerate(test_dataset):
-        if idx % 100 == 0:
-            print(f"Model: {model_name}, Iteration: {idx}/{MAXIMUM_ELEMENTS_TO_TEST}")
-        # Compute embedding for both lists
-        s1, s2 = row["questions"]["text"]
-
-        e1 = model.encode(s1, convert_to_tensor=True)
-        e2 = model.encode(s2, convert_to_tensor=True)
-
-        cosine_scores = util.cos_sim(e1, e2)
-        predictions.append(cosine_scores.item())
-        actual_label.append(1 if row["is_duplicate"] else 0)
+    print(f"Generated calculations in {time.time()-start}s")
 
     # Calculate AUC score
-    auc = roc_auc_score(actual_label, predictions)
-
-    print(f"Model: {model_name} - AUC: {auc}")
-    return auc
+    return roc_auc_score(optimized_labels, optimized_predictions)
 
 
 @stub.function(
@@ -176,9 +104,8 @@ def benchmark_mteb_model(model_name):
     secret=Secret.from_name("cohere"),
     timeout=1200,
 )
-async def benchmark_cohere_roc(model_name: str):
+async def benchmark_cohere_roc():
     from cohere import Client
-    from cohere.responses import Embeddings
     from datasets import load_from_disk
     from sentence_transformers import util
     from sklearn.metrics import roc_auc_score
@@ -186,27 +113,27 @@ async def benchmark_cohere_roc(model_name: str):
     import time
 
     dataset = load_from_disk(f"{DATASET_DIR}/{DATASET_NAME}")
-    train_test_split = dataset.train_test_split(test_size=TEST_PERCENTAGE, seed=42)
-    test_dataset = train_test_split["test"].select(range(MAXIMUM_ELEMENTS_TO_TEST))
+    val_dataset = dataset["val"]
     co = Client(os.environ["COHERE_API_KEY"])
-
+    sem = asyncio.Semaphore(32)
     predictions = []
     actual_label = []
 
     async def embed_text(row):
-        response: Embeddings = co.embed(
-            texts=row["questions"]["text"],
-            model=model_name,
-            input_type="clustering",
-        )
-        e1, e2 = response.embeddings
-        cosine_scores = util.cos_sim(e1, e2)
-        return cosine_scores.item(), 1 if row["is_duplicate"] else 0
+        async with sem:
+            response = co.embed(
+                texts=row["questions"]["text"],
+                model="embed-multilingual-v3.0",
+                input_type="clustering",
+            )
+            e1, e2 = response.embeddings
+            cosine_scores = util.cos_sim(e1, e2)
+            return cosine_scores.item(), 1 if row["is_duplicate"] else 0
 
     start = time.time()
-    res = await asyncio.gather(*[embed_text(row) for row in test_dataset])
+    res = await asyncio.gather(*[embed_text(row) for row in val_dataset])
     end = time.time()
-    print(f"Processed {len(test_dataset)} embeddings in {end-start}s")
+    print(f"Processed {len(val_dataset)} embeddings in {end-start}s")
 
     predictions = [i[0] for i in res]
     actual_label = [i[1] for i in res]
@@ -219,6 +146,7 @@ async def benchmark_cohere_roc(model_name: str):
 
 @stub.local_entrypoint()
 def main():
+    generate_dataset_split.remote()
     from tabulate import tabulate
 
     models = [
@@ -229,23 +157,14 @@ def main():
         "sentence-transformers/gtr-t5-large",
     ]
 
-    cohere_models = [
-        "embed-english-v3.0",
-        "embed-multilingual-v3.0",
-        "embed-english-light-v3.0",
-        "embed-multilingual-light-v3.0",
-    ]
-
     res = {}
-
     for model_name, auc in zip(
         models, benchmark_mteb_model.map(models, order_outputs=True)
     ):
         res[model_name] = auc
 
-    for model_name, auc in zip(
-        cohere_models, benchmark_cohere_roc.map(cohere_models, order_outputs=True)
-    ):
-        res[f"{model_name} (Cohere)"] = auc
+    res["embed-multilingual-v3.0"] = benchmark_cohere_roc.remote()
 
-    print(tabulate([[model, auc] for model, auc in res.items()], ["Model Name", "AUC"]))
+    values = [[model, auc] for model, auc in res.items()]
+    values.sort(lambda x: x[1], reverse=True)
+    print(tabulate(values, ["Model Name", "AUC"]))
