@@ -1,14 +1,5 @@
 from modal import Image, Stub, Volume, Secret, gpu
 import os
-from sklearn.metrics import accuracy_score, precision_score, recall_score
-
-
-def coerce_to_labels(func):
-    def wrapper(predicted_scores, labels):
-        predicted_labels = []
-
-    return wrapper
-
 
 # Model Configuration
 MODEL_ID = "BAAI/bge-base-en-v1.5"
