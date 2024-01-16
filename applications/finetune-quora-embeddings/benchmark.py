@@ -22,17 +22,18 @@ stub = Stub("cohere-embeddings")
 
 
 image = Image.debian_slim().pip_install(
-    "cohere", "datasets", "sentence-transformers", "scikit-learn", "tabulate"
+    "cohere", "datasets", "sentence-transformers", "scikit-learn", "tabulate", "openai"
 )
 
 
 @stub.function(image=image, volumes={DATASET_DIR: DATASET_VOLUME})
 def generate_dataset_split():
-    from datasets import load_dataset, DatasetDict
+    from datasets import load_dataset, DatasetDict, load_from_disk
 
     dataset_path = f"{DATASET_DIR}/{DATASET_NAME}"
 
     if os.path.exists(dataset_path):
+        dataset = load_from_disk(f"{DATASET_DIR}/{DATASET_NAME}")
         return
 
     dataset = load_dataset(
@@ -101,8 +102,62 @@ def benchmark_mteb_model(model_name):
 @stub.function(
     image=image,
     volumes={DATASET_DIR: DATASET_VOLUME},
+    secret=Secret.from_name("openai"),
+    timeout=86400,
+)
+async def benchmark_openai():
+    from datasets import load_from_disk
+    from sentence_transformers import util
+    from sklearn.metrics import roc_auc_score
+    import asyncio
+    import time
+    from tqdm import tqdm
+    from openai import OpenAI
+
+    dataset = load_from_disk(f"{DATASET_DIR}/{DATASET_NAME}")
+    val_dataset = dataset["val"]
+
+    client = OpenAI()
+
+    sem = asyncio.Semaphore(64)
+    predictions = []
+    actual_label = []
+
+    tqdm_monitoring_bar = tqdm(total=len(val_dataset))
+
+    async def embed_text(row, progress_bar: tqdm):
+        async with sem:
+            response = client.embeddings.create(
+                input=row["questions"]["text"], model="text-embedding-ada-002"
+            ).data
+            e1 = response[0].embedding
+            e2 = response[1].embedding
+            cosine_scores = util.cos_sim(e1, e2)
+            progress_bar.update(1)
+            return cosine_scores.item(), 1 if row["is_duplicate"] else 0
+
+    start = time.time()
+    res = await asyncio.gather(
+        *[embed_text(row, tqdm_monitoring_bar) for row in val_dataset]
+    )
+    tqdm_monitoring_bar.close()
+    end = time.time()
+    print(f"Processed {len(val_dataset)} embeddings in {end-start}s")
+
+    predictions = [i[0] for i in res]
+    actual_label = [i[1] for i in res]
+
+    # Calculate AUC score
+    auc = roc_auc_score(actual_label, predictions)
+
+    return auc
+
+
+@stub.function(
+    image=image,
+    volumes={DATASET_DIR: DATASET_VOLUME},
     secret=Secret.from_name("cohere"),
-    timeout=1200,
+    timeout=86400,
 )
 async def benchmark_cohere_roc():
     from cohere import Client
@@ -111,15 +166,18 @@ async def benchmark_cohere_roc():
     from sklearn.metrics import roc_auc_score
     import asyncio
     import time
+    from tqdm import tqdm
 
     dataset = load_from_disk(f"{DATASET_DIR}/{DATASET_NAME}")
     val_dataset = dataset["val"]
     co = Client(os.environ["COHERE_API_KEY"])
-    sem = asyncio.Semaphore(32)
+    sem = asyncio.Semaphore(64)
     predictions = []
     actual_label = []
 
-    async def embed_text(row):
+    tqdm_monitoring_bar = tqdm(total=len(val_dataset))
+
+    async def embed_text(row, progress_bar: tqdm):
         async with sem:
             response = co.embed(
                 texts=row["questions"]["text"],
@@ -128,10 +186,14 @@ async def benchmark_cohere_roc():
             )
             e1, e2 = response.embeddings
             cosine_scores = util.cos_sim(e1, e2)
+            progress_bar.update(1)
             return cosine_scores.item(), 1 if row["is_duplicate"] else 0
 
     start = time.time()
-    res = await asyncio.gather(*[embed_text(row) for row in val_dataset])
+    res = await asyncio.gather(
+        *[embed_text(row, tqdm_monitoring_bar) for row in val_dataset]
+    )
+    tqdm_monitoring_bar.close()
     end = time.time()
     print(f"Processed {len(val_dataset)} embeddings in {end-start}s")
 
@@ -146,25 +208,31 @@ async def benchmark_cohere_roc():
 
 @stub.local_entrypoint()
 def main():
-    generate_dataset_split.remote()
     from tabulate import tabulate
 
-    models = [
-        "llmrails/ember-v1",
-        "BAAI/bge-base-en-v1.5",
-        "thenlper/gte-large",
-        "infgrad/stella-base-en-v2",
-        "sentence-transformers/gtr-t5-large",
-    ]
+    generate_dataset_split.remote()
 
     res = {}
-    for model_name, auc in zip(
-        models, benchmark_mteb_model.map(models, order_outputs=True)
-    ):
-        res[model_name] = auc
+    res["text-embeddings-ada-v2"] = benchmark_openai.remote()
+    # res["embed-multilingual-v3.0"] = benchmark_cohere_roc.remote()
+    # models = [
+    #     "llmrails/ember-v1",
+    #     "BAAI/bge-base-en-v1.5",
+    #     "thenlper/gte-large",
+    #     "infgrad/stella-base-en-v2",
+    #     "sentence-transformers/gtr-t5-large",
+    #     "567-labs/bge-base-en-v1.5-ft-quora-0.9",
+    #     "567-labs/bge-base-en-v1.5-ft-quora-0.7",
+    #     "567-labs/bge-base-en-v1.5-ft-quora-0.5",
+    #     "567-labs/bge-base-en-v1.5-ft-quora-0.3",
+    #     "567-labs/bge-base-en-v1.5-ft-quora-0.1",
+    # ]
 
-    res["embed-multilingual-v3.0"] = benchmark_cohere_roc.remote()
+    # for model_name, auc in zip(
+    #     models, benchmark_mteb_model.map(models, order_outputs=True)
+    # ):
+    #     res[model_name] = auc
 
     values = [[model, auc] for model, auc in res.items()]
-    values.sort(lambda x: x[1], reverse=True)
+    values.sort(key=lambda x: x[1], reverse=True)
     print(tabulate(values, ["Model Name", "AUC"]))
