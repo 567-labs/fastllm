@@ -32,25 +32,8 @@ This will open up a new tab in your default browser and allow you to run, deploy
 > - OPENAI_API_KEY
 > ________
 
-You can configure the OSS models tested by modifying the `models` variable in the `local_entrypoint` in the stub ( See below for an example )
+You can configure the OSS models tested by modifying the `MODELS` variable at the top of the `benchmark.py` file ( See below for an example )
 
-```py
-@stub.local_entrypoint()
-def main():
-    from tabulate import tabulate
-
-    generate_dataset_split.remote()
-
-    res = {}
-    res["text-embeddings-ada-v2"] = benchmark_openai.remote()
-    res["embed-multilingual-v3.0"] = benchmark_cohere_roc.remote()
-    models = [
-        "llmrails/ember-v1",
-        "BAAI/bge-base-en-v1.5",
-        "thenlper/gte-large",
-        "infgrad/stella-base-en-v2",
-        "sentence-transformers/gtr-t5-large",
-```
 
 Once you've configured the necessary secrets and models to benchmark against, you can run the script by running the command 
 

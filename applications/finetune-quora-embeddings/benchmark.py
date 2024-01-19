@@ -2,7 +2,13 @@ from modal import Image, Stub, Volume, Secret, gpu
 import os
 
 # Model Configuration
-MODEL_ID = "BAAI/bge-base-en-v1.5"
+MODELS = [
+    "llmrails/ember-v1",
+    "BAAI/bge-base-en-v1.5",
+    "thenlper/gte-large",
+    "infgrad/stella-base-en-v2",
+    "sentence-transformers/gtr-t5-large",
+]
 GPU_CONFIG = gpu.A100()
 
 
@@ -298,21 +304,9 @@ def main():
     res = {}
     res["text-embeddings-ada-v2"] = benchmark_openai.remote()
     res["embed-multilingual-v3.0"] = benchmark_cohere_roc.remote()
-    models = [
-        "llmrails/ember-v1",
-        "BAAI/bge-base-en-v1.5",
-        "thenlper/gte-large",
-        "infgrad/stella-base-en-v2",
-        "sentence-transformers/gtr-t5-large",
-        # "567-labs/bge-base-en-v1.5-ft-quora-0.9",
-        # "567-labs/bge-base-en-v1.5-ft-quora-0.7",
-        # "567-labs/bge-base-en-v1.5-ft-quora-0.5",
-        # "567-labs/bge-base-en-v1.5-ft-quora-0.3",
-        # "567-labs/bge-base-en-v1.5-ft-quora-0.1",
-    ]
 
     for model_name, auc in zip(
-        models, benchmark_mteb_model.map(models, order_outputs=True)
+        MODELS, benchmark_mteb_model.map(MODELS, order_outputs=True)
     ):
         res[model_name] = auc
 
