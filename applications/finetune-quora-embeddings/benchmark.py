@@ -1,5 +1,8 @@
+import itertools
 from modal import Image, Stub, Volume, Secret, gpu
 import os
+from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_auc_score
+from evals import threshold_decorator
 
 # Model Configuration
 MODELS = [
@@ -11,6 +14,19 @@ MODELS = [
 ]
 GPU_CONFIG = gpu.A100()
 
+# Eval COnfiguration
+METRICS = {
+    "accuracy": accuracy_score,  # This is the number of correct predictions by the model ( TP + TN )/ (# of samples)
+    "precision": precision_score,  # This measures the number of positive class predicitons (TP) / (TP + FP)
+    "recall": recall_score,  # This measure the number of negative class predictions (TP) / ( TP + FN )
+}
+THRESHOLDS = [0.3, 0.5, 0.7]
+EVALS = dict()
+for threshold, metric_name in itertools.product(THRESHOLDS, METRICS.keys()):
+    EVALS[f"{metric_name}({threshold})"] = threshold_decorator(threshold)(
+        METRICS[metric_name]
+    )
+EVALS["AUC"] = roc_auc_score
 
 # Dataset Configuration
 DATASET_NAME = "567-labs/cleaned-quora-dataset-train-test-split"
@@ -68,7 +84,6 @@ def benchmark_mteb_model(model_name):
     from datasets import load_from_disk
     from sentence_transformers import util, SentenceTransformer
     from sklearn.metrics import roc_auc_score
-    import time
     import numpy as np
     import torch.nn as nn
     import torch
