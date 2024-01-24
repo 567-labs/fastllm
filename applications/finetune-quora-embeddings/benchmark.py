@@ -1,13 +1,15 @@
 import itertools
+from typing import List
 from modal import Image, Stub, Volume, Secret, gpu
 import os
 from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_auc_score
 from evals import threshold_decorator
+from datasets import Dataset
 
 # Model Configuration
 MODELS = [
-    "llmrails/ember-v1",
     "BAAI/bge-base-en-v1.5",
+    "llmrails/ember-v1",
     "thenlper/gte-large",
     "infgrad/stella-base-en-v2",
     "sentence-transformers/gtr-t5-large",
@@ -23,7 +25,7 @@ METRICS = {
 THRESHOLDS = [0.3, 0.5, 0.7]
 EVALS = dict()
 for threshold, metric_name in itertools.product(THRESHOLDS, METRICS.keys()):
-    EVALS[f"{metric_name}({threshold})"] = threshold_decorator(threshold)(
+    EVALS[f"{metric_name} ({threshold})"] = threshold_decorator(threshold)(
         METRICS[metric_name]
     )
 EVALS["AUC"] = roc_auc_score
@@ -44,6 +46,50 @@ stub = Stub("cohere-embeddings")
 image = Image.debian_slim().pip_install(
     "cohere", "datasets", "sentence-transformers", "scikit-learn", "tabulate", "openai"
 )
+
+
+def get_unique_sentences(
+    test_dataset: Dataset, sentence_to_id_mapping: dict, batch_size=1000
+):
+    seen = set()
+    batch = []
+    for row in test_dataset:
+        s1, s2 = row["questions"]["text"]
+
+        if s1 not in seen:
+            sentence_to_id_mapping[s1] = len(seen)
+            seen.add(s1)
+            batch.append(s1)
+
+            if len(batch) == batch_size:
+                yield batch
+                batch = []
+
+        if s2 not in seen:
+            sentence_to_id_mapping[s2] = len(seen)
+            seen.add(s2)
+            batch.append(s2)
+
+            if len(batch) == batch_size:
+                yield batch
+                batch = []
+
+    if batch:
+        yield batch
+
+
+def extract_unique_sentences(test_dataset: Dataset, sentence_to_id_mapping: dict):
+    sentence_pair_elements_1 = []
+    sentence_pair_elements_2 = []
+    labels = []
+
+    for row in test_dataset:
+        s1, s2 = row["questions"]["text"]
+        sentence_pair_elements_1.append(sentence_to_id_mapping[s1])
+        sentence_pair_elements_2.append(sentence_to_id_mapping[s2])
+        labels.append(1 if row["is_duplicate"] else 0)
+
+    return sentence_pair_elements_1, sentence_pair_elements_2, labels
 
 
 @stub.function(image=image, volumes={DATASET_DIR: DATASET_VOLUME})
@@ -80,59 +126,48 @@ def generate_quora_input_example(examples):
 @stub.function(
     image=image, volumes={DATASET_DIR: DATASET_VOLUME}, gpu=GPU_CONFIG, timeout=1200
 )
-def benchmark_mteb_model(model_name):
+async def benchmark_mteb_model(model_name):
     from datasets import load_from_disk
     from sentence_transformers import util, SentenceTransformer
     from sklearn.metrics import roc_auc_score
     import numpy as np
     import torch.nn as nn
     import torch
+    import time
+    from tqdm import tqdm
+    import asyncio
 
     dataset = load_from_disk(f"{DATASET_DIR}/{DATASET_NAME}")
     test_dataset = dataset["test"]
-
+    num_rows = 44635  # len(test_dataset)
     model = SentenceTransformer(model_name)
 
-    sentences = []
-    sentences_id_to_embedding_mapping = {}
-    t1 = []
-    t2 = []
-    labels = []
-    for row in test_dataset:
-        s1, s2 = row["questions"]["text"]
-        id_1, id_2 = row["questions"]["id"]
+    sentence_to_embedding_map = dict()
+    batch_size = 5000
+    sentences = get_unique_sentences(
+        test_dataset, sentence_to_embedding_map, batch_size
+    )
+    embeddings = []
+    for item in sentences:
+        embeddings.extend(model.encode(item))
 
-        if id_1 not in sentences_id_to_embedding_mapping:
-            sentences_id_to_embedding_mapping[id_1] = len(
-                sentences_id_to_embedding_mapping
-            )
-            sentences.append(s1)
-
-        if id_2 not in sentences_id_to_embedding_mapping:
-            sentences_id_to_embedding_mapping[id_2] = len(
-                sentences_id_to_embedding_mapping
-            )
-            sentences.append(s2)
-
-        t1.append(sentences_id_to_embedding_mapping[id_1])
-        t2.append(sentences_id_to_embedding_mapping[id_2])
-        labels.append(1 if row["is_duplicate"] else 0)
-
-    embeddings = model.encode(sentences)
-    embeddings_tensor = torch.tensor(embeddings).to("cuda")
-
+    embeddings_tensor = torch.tensor(np.array(embeddings)).to("cuda")
     # Create an embedding layer with pre-trained weights
     embedding_layer = nn.Embedding.from_pretrained(embeddings_tensor)
 
-    t1_tensor = torch.as_tensor(t1, device="cuda")
-    e1 = embedding_layer(t1_tensor)
+    sentence_pairs_elem_1, sentence_pairs_elem_2, labels = extract_unique_sentences(
+        test_dataset, sentence_to_embedding_map
+    )
+    sentence_pairs_embedding_1 = embedding_layer(
+        torch.as_tensor(sentence_pairs_elem_1, device="cuda")
+    )
+    sentence_pairs_embedding_2 = embedding_layer(
+        torch.as_tensor(sentence_pairs_elem_2, device="cuda")
+    )
 
-    t2_tensor = torch.as_tensor(t2, device="cuda")
-    e2 = embedding_layer(t2_tensor)
-
-    cosine_scores = util.cos_sim(e1, e2)
+    cosine_scores = util.cos_sim(sentence_pairs_embedding_1, sentence_pairs_embedding_2)
     predictions = np.diag(cosine_scores.cpu()).tolist()
-    return roc_auc_score(labels, predictions)
+    return {name: f(labels, predictions) for name, f in EVALS.items()}
 
 
 @stub.function(
@@ -313,18 +348,32 @@ async def benchmark_cohere_roc():
 @stub.local_entrypoint()
 def main():
     from tabulate import tabulate
+    import re
 
-    generate_dataset_split.remote()
+    def sort_key(key):
+        match = re.search(r"\((\d+(\.\d+)?)\)", key)
+        if match:
+            return (True, float(match.group(1)))
+        else:
+            return (False, key)
+
+    # generate_dataset_split.remote()
 
     res = {}
-    res["text-embeddings-ada-v2"] = benchmark_openai.remote()
-    res["embed-multilingual-v3.0"] = benchmark_cohere_roc.remote()
+    # res["text-embeddings-ada-v2"] = benchmark_openai.remote()
+    # res["embed-multilingual-v3.0"] = benchmark_cohere_roc.remote()
 
-    for model_name, auc in zip(
+    for model_name, evals in zip(
         MODELS, benchmark_mteb_model.map(MODELS, order_outputs=True)
     ):
-        res[model_name] = auc
+        res[model_name] = evals
 
-    values = [[model, auc] for model, auc in res.items()]
-    values.sort(key=lambda x: x[1], reverse=True)
-    print(tabulate(values, ["Model Name", "AUC"]))
+    keys = list(EVALS.keys())
+    keys.sort(key=sort_key)
+
+    values = [
+        [model, *[eval_perf[eval_name] for eval_name in keys]]
+        for model, eval_perf in res.items()
+    ]
+
+    print(tabulate(values, ["Model Name", *keys]))
