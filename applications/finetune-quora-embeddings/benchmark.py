@@ -129,17 +129,12 @@ def generate_quora_input_example(examples):
 async def benchmark_mteb_model(model_name):
     from datasets import load_from_disk
     from sentence_transformers import util, SentenceTransformer
-    from sklearn.metrics import roc_auc_score
     import numpy as np
     import torch.nn as nn
     import torch
-    import time
-    from tqdm import tqdm
-    import asyncio
 
     dataset = load_from_disk(f"{DATASET_DIR}/{DATASET_NAME}")
     test_dataset = dataset["test"]
-    num_rows = 44635  # len(test_dataset)
     model = SentenceTransformer(model_name)
 
     sentence_to_embedding_map = dict()
@@ -191,38 +186,17 @@ async def benchmark_openai():
 
     dataset = load_from_disk(f"{DATASET_DIR}/{DATASET_NAME}")
     test_dataset = dataset["test"]
-
     client = AsyncOpenAI()
 
+    sentence_to_embedding_map = dict()
+    batch_size = 128
+    num_sentences = 86235  # Number of unique sentences ( derived from len(sentences))
+
     sem = asyncio.Semaphore(20)
-    sentences = []
-    sentences_id_to_embedding_mapping = {}
-    t1 = []
-    t2 = []
-    labels = []
-    for row in test_dataset:
-        s1, s2 = row["questions"]["text"]
-        id_1, id_2 = row["questions"]["id"]
-
-        if id_1 not in sentences_id_to_embedding_mapping:
-            sentences_id_to_embedding_mapping[id_1] = len(
-                sentences_id_to_embedding_mapping
-            )
-            sentences.append(s1)
-
-        if id_2 not in sentences_id_to_embedding_mapping:
-            sentences_id_to_embedding_mapping[id_2] = len(
-                sentences_id_to_embedding_mapping
-            )
-            sentences.append(s2)
-
-        t1.append(sentences_id_to_embedding_mapping[id_1])
-        t2.append(sentences_id_to_embedding_mapping[id_2])
-        labels.append(1 if row["is_duplicate"] else 0)
-
-    batch_size = 16
-    print(f"Extracted {len(sentences)} unique sentences")
-    tqdm_monitoring_bar = tqdm(total=len(sentences))
+    sentences = get_unique_sentences(
+        test_dataset, sentence_to_embedding_map, batch_size
+    )
+    tqdm_monitoring_bar = tqdm(total=num_sentences)
 
     async def embed_text(texts, progress_bar: tqdm):
         async with sem:
@@ -230,12 +204,19 @@ async def benchmark_openai():
                 input=texts, model="text-embedding-ada-002"
             )
             progress_bar.update(len(texts))
-            return [item.embedding for item in response.data]
+            assert len(response.data) == len(
+                texts
+            ), f"Response was {len(response)} when {len(texts)} entities were passed in"
+
+            res = []
+            for item in response.data:
+                assert len(item.embedding) == 1536
+                res.append(item.embedding)
+            return res
 
     start = time.time()
     coros = [
-        embed_text(sentences[start : start + batch_size], tqdm_monitoring_bar)
-        for start in range(0, len(sentences), batch_size)
+        embed_text(sentence_group, tqdm_monitoring_bar) for sentence_group in sentences
     ]
     res = await asyncio.gather(*coros)
     tqdm_monitoring_bar.close()
@@ -246,15 +227,19 @@ async def benchmark_openai():
     embeddings_tensor = torch.tensor(flattened_res).to("cuda")
     embedding_layer = nn.Embedding.from_pretrained(embeddings_tensor)
 
-    t1_tensor = torch.as_tensor(t1, device="cuda")
-    e1 = embedding_layer(t1_tensor)
+    sentence_pairs_elem_1, sentence_pairs_elem_2, labels = extract_unique_sentences(
+        test_dataset, sentence_to_embedding_map
+    )
+    sentence_pairs_embedding_1 = embedding_layer(
+        torch.as_tensor(sentence_pairs_elem_1, device="cuda")
+    )
+    sentence_pairs_embedding_2 = embedding_layer(
+        torch.as_tensor(sentence_pairs_elem_2, device="cuda")
+    )
 
-    t2_tensor = torch.as_tensor(t2, device="cuda")
-    e2 = embedding_layer(t2_tensor)
-
-    cosine_scores = util.cos_sim(e1, e2)
+    cosine_scores = util.cos_sim(sentence_pairs_embedding_1, sentence_pairs_embedding_2)
     predictions = np.diag(cosine_scores.cpu()).tolist()
-    return roc_auc_score(labels, predictions)
+    return {name: f(labels, predictions) for name, f in EVALS.items()}
 
 
 @stub.function(
@@ -280,34 +265,13 @@ async def benchmark_cohere_roc():
     test_dataset = dataset["test"]
     co = Client(os.environ["COHERE_API_KEY"])
     sem = asyncio.Semaphore(64)
-    sentences = []
-    sentences_id_to_embedding_mapping = {}
-    t1 = []
-    t2 = []
-    labels = []
-    for row in test_dataset:
-        s1, s2 = row["questions"]["text"]
-        id_1, id_2 = row["questions"]["id"]
-
-        if id_1 not in sentences_id_to_embedding_mapping:
-            sentences_id_to_embedding_mapping[id_1] = len(
-                sentences_id_to_embedding_mapping
-            )
-            sentences.append(s1)
-
-        if id_2 not in sentences_id_to_embedding_mapping:
-            sentences_id_to_embedding_mapping[id_2] = len(
-                sentences_id_to_embedding_mapping
-            )
-            sentences.append(s2)
-
-        t1.append(sentences_id_to_embedding_mapping[id_1])
-        t2.append(sentences_id_to_embedding_mapping[id_2])
-        labels.append(1 if row["is_duplicate"] else 0)
-
+    num_sentences = 86235  # len(test_dataset)
+    sentence_to_embedding_map = dict()
     batch_size = 96
-    print(f"Extracted {len(sentences)} unique sentences")
-    tqdm_monitoring_bar = tqdm(total=len(sentences))
+    sentences = get_unique_sentences(
+        test_dataset, sentence_to_embedding_map, batch_size
+    )
+    tqdm_monitoring_bar = tqdm(total=num_sentences)
 
     async def embed_text(texts, progress_bar: tqdm):
         async with sem:
@@ -317,38 +281,47 @@ async def benchmark_cohere_roc():
                 input_type="clustering",
             )
             progress_bar.update(len(texts))
+            assert len(response.embeddings) == len(texts)
+
+            for item in response.embeddings:
+                assert len(item) == 1024
             return response.embeddings
 
     start = time.time()
     coros = [
-        embed_text(sentences[start : start + batch_size], tqdm_monitoring_bar)
-        for start in range(0, len(sentences), batch_size)
+        embed_text(sentence_group, tqdm_monitoring_bar) for sentence_group in sentences
     ]
     res = await asyncio.gather(*coros)
-    tqdm_monitoring_bar.close()
     end = time.time()
+    tqdm_monitoring_bar.close()
     print(f"Generated embeddings in {end-start}s")
 
     # Flatten the list of lists and convert to tensor of floats
     flattened_res = [item for sublist in res for item in sublist]
+    print(f"Processed {len(flattened_res)} embeddings in {end-start}s")
     embeddings_tensor = torch.tensor(flattened_res).to("cuda")
     embedding_layer = nn.Embedding.from_pretrained(embeddings_tensor)
 
-    t1_tensor = torch.as_tensor(t1, device="cuda")
-    e1 = embedding_layer(t1_tensor)
+    sentence_pairs_elem_1, sentence_pairs_elem_2, labels = extract_unique_sentences(
+        test_dataset, sentence_to_embedding_map
+    )
+    sentence_pairs_embedding_1 = embedding_layer(
+        torch.as_tensor(sentence_pairs_elem_1, device="cuda")
+    )
+    sentence_pairs_embedding_2 = embedding_layer(
+        torch.as_tensor(sentence_pairs_elem_2, device="cuda")
+    )
 
-    t2_tensor = torch.as_tensor(t2, device="cuda")
-    e2 = embedding_layer(t2_tensor)
-
-    cosine_scores = util.cos_sim(e1, e2)
+    cosine_scores = util.cos_sim(sentence_pairs_embedding_1, sentence_pairs_embedding_2)
     predictions = np.diag(cosine_scores.cpu()).tolist()
-    return roc_auc_score(labels, predictions)
+    return {name: f(labels, predictions) for name, f in EVALS.items()}
 
 
 @stub.local_entrypoint()
 def main():
     from tabulate import tabulate
     import re
+    import json
 
     def sort_key(key):
         match = re.search(r"\((\d+(\.\d+)?)\)", key)
@@ -360,14 +333,16 @@ def main():
     # generate_dataset_split.remote()
 
     res = {}
-    # res["text-embeddings-ada-v2"] = benchmark_openai.remote()
-    # res["embed-multilingual-v3.0"] = benchmark_cohere_roc.remote()
+    res["text-embeddings-ada-v2"] = benchmark_openai.remote()
+    res["embed-multilingual-v3.0"] = benchmark_cohere_roc.remote()
 
     for model_name, evals in zip(
         MODELS, benchmark_mteb_model.map(MODELS, order_outputs=True)
     ):
         res[model_name] = evals
 
+    with open("results.json", "w") as f:
+        json.dump(res, f)
     keys = list(EVALS.keys())
     keys.sort(key=sort_key)
 
