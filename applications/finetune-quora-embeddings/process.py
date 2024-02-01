@@ -26,9 +26,7 @@ image = Image.debian_slim().pip_install(
 )
 
 
-@stub.function(
-    image=image, volumes={DATASET_DIR: DATASET_VOLUME}, gpu=GPU_CONFIG, timeout=86400
-)
+@stub.function(image=image, volumes={DATASET_DIR: DATASET_VOLUME}, timeout=86400)
 def generate_cosine_similarity_scores():
     import glob
     import numpy as np
@@ -39,7 +37,7 @@ def generate_cosine_similarity_scores():
 
     # Get all .arrow files in the /cached-embeddings directory
     arrow_files = glob.glob(f"{DATASET_DIR}/cached-embeddings/*.arrow")
-    # arrow_files = ["/data/cached-embeddings/text-embedding-3-small-test.arrow"]
+    arrow_files = ["/data/cached-embeddings/text-embedding-3-small-test.arrow"]
 
     # Create the /cosine-similarity directory if it doesn't exist
     if not os.path.exists(COSINE_SIMILARITY_DIR):
@@ -51,9 +49,9 @@ def generate_cosine_similarity_scores():
             COSINE_SIMILARITY_DIR,
             os.path.basename(file).replace(".arrow", "-cossim.arrow"),
         )
-        if os.path.exists(new_file_name):
-            print(f"Skipping {file} since it has already been processed")
-            continue
+        # if os.path.exists(new_file_name):
+        #     print(f"Skipping {file} since it has already been processed")
+        #     continue
         # Load the original arrow file
         table = pa.ipc.open_file(file).read_all()
         df: DataFrame = table.to_pandas()
@@ -161,12 +159,12 @@ def generate_visualisation():
 def main():
     import os
 
-    # generate_cosine_similarity_scores.remote()
+    generate_cosine_similarity_scores.remote()
 
-    img_dir = "./img"
-    if not os.path.exists(img_dir):
-        os.makedirs(img_dir)
+    # img_dir = "./img"
+    # if not os.path.exists(img_dir):
+    #     os.makedirs(img_dir)
 
-    for model_name, image_bytes in generate_visualisation.remote():
-        with open(f"./img/{model_name}-distribution.png", "wb") as f:
-            f.write(image_bytes)
+    # for model_name, image_bytes in generate_visualisation.remote():
+    #     with open(f"./img/{model_name}-distribution.png", "wb") as f:
+    #         f.write(image_bytes)
