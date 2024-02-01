@@ -1,61 +1,30 @@
 from modal import Image, gpu, Stub, Volume, Secret
 
+from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_auc_score
+
+# Eval Configuration
+METRICS = {
+    "accuracy": accuracy_score,  # This is the number of correct predictions by the model ( TP + TN )/ (# of samples)
+    "precision": precision_score,  # This measures the number of positive class predicitons (TP) / (TP + FP)
+    "recall": recall_score,  # This measure the number of negative class predictions (TP) / ( TP + FN )
+    "AUC": roc_auc_score,
+}
 
 # Dataset Configuration
-DATASET_NAME = "quora"
-DATASET_CONFIG = "default"
-DATASET_SPLIT = "train"
-DATASET_DIR = "/data"
-DATASET_VOLUME = Volume.persisted("datasets")
+MODELS = ["BAAI/bge-base-en-v1.5", "llmrails/ember-v1", "thenlper/gte-large"]
+OPENAI_MODELS = ["text-embedding-3-small"]
 
 # Stub Configuration
-MODEL_ID = "BAAI/bge-base-en-v1.5"
 GPU_CONFIG = gpu.A100()
 
-# Finetune Configuration
-
-# Wandb Configuration
-WANDB_PROJECT_NAME = "quora-finetuning"
-ENABLE_LOGGING = True
+# Volume Configuration
+DATASET_VOLUME = Volume.persisted("datasets")
+DATASET_DIR = "/data"
+COSINE_SIMILARITY_DIR = f"{DATASET_DIR}/cosine-similarity"
 
 stub = Stub("finetune")
 
-
-def download_model_and_dataset():
-    from sentence_transformers import SentenceTransformer
-
-    SentenceTransformer(MODEL_ID)
-
-
-image = (
-    Image.debian_slim()
-    .pip_install(
-        "sentence-transformers",
-        "torch",
-        "datasets",
-        "scikit-learn",
-        "huggingface_hub",
-        "hf_transfer",
-        "wandb",
-    )
-    .env({"HF_HUB_ENABLE_HF_TRANSFER": "1"})
-    .run_function(download_model_and_dataset)
-)
-
-
-def generate_quora_input_example(examples):
-    from sentence_transformers import InputExample
-
-    return [
-        InputExample(
-            texts=[
-                example["questions"]["text"][0],
-                example["questions"]["text"][1],
-            ],
-            label=int(example["is_duplicate"]),
-        )
-        for example in examples
-    ]
+image = Image.debian_slim().pip_install("pandas", "pyarrow", "scikit-learn")
 
 
 @stub.function(
@@ -65,148 +34,80 @@ def generate_quora_input_example(examples):
     volumes={DATASET_DIR: DATASET_VOLUME},
     secrets=[Secret.from_name("huggingface-credentials"), Secret.from_name("wandb")],
 )
-def train_model(train_dataset_percentage: float):
-    from sentence_transformers import SentenceTransformer, losses, evaluation, util
-    from sklearn.metrics import roc_auc_score
-    from torch.utils.data import DataLoader
-    from datasets import load_from_disk
-    import math
-    import time
-    import numpy as np
-    import wandb
-
-    # Define the model. Either from scratch of by loading a pre-trained model
-    model = SentenceTransformer(MODEL_ID)
-
-    dataset = load_from_disk(f"{DATASET_DIR}/{DATASET_NAME}")
-    val_dataset = dataset["val"]
-    train_dataset = dataset["train"]
-
-    if ENABLE_LOGGING:
-        # Initialise Wandb
-        wandb.init(
-            # set the wandb project where this run will be logged
-            project=WANDB_PROJECT_NAME,
-            # track hyperparameters and run metadata
-            group=f"{MODEL_ID}-{train_dataset_percentage}",
-        )
-
-    dataset_slice = math.floor(len(train_dataset) * train_dataset_percentage)
-    train_dataset = generate_quora_input_example(
-        train_dataset.select(range(dataset_slice))
-    )
-    val_dataset = generate_quora_input_example(val_dataset)
-
-    # Define your train dataset, the dataloader and the train loss
-    train_dataloader = DataLoader(train_dataset, shuffle=True, batch_size=32)
-    train_loss = losses.OnlineContrastiveLoss(model)
-    evaluator = evaluation.BinaryClassificationEvaluator.from_input_examples(
-        val_dataset,
-    )
-
-    def log_metrics(score, epoch, steps):
-        print(f"Epoch {epoch}: score {score}")
-
-        if ENABLE_LOGGING:
-            wandb.log({"score": score})
-
-    loss = evaluator(model)
-
-    for i in range(6):
-        # Tune the model
-        model.fit(
-            train_objectives=[(train_dataloader, train_loss)],
-            epochs=1,
-            warmup_steps=100,
-            callback=log_metrics,
-        )
-        new_loss = evaluator(model)
-        if ENABLE_LOGGING:
-            wandb.log({"loss": loss})
-
-        if abs(new_loss - loss) < 0.01:
-            break
-
-    start = time.time()
-
-    # Process texts in batches
-    texts1 = [row.texts[0] for row in val_dataset]
-    texts2 = [row.texts[1] for row in val_dataset]
-    embeddings1 = model.encode(texts1, convert_to_tensor=True)
-    embeddings2 = model.encode(texts2, convert_to_tensor=True)
-    cosine_scores = util.cos_sim(embeddings1, embeddings2)
-    optimized_predictions = np.diag(cosine_scores.cpu()).tolist()
-    optimized_labels = [1 if row.label else 0 for row in val_dataset]
-
-    print(f"Generated calculations in {time.time()-start}s")
-
-    auc = roc_auc_score(optimized_labels, optimized_predictions)
-
-    if ENABLE_LOGGING:
-        wandb.log({"auc": auc})
-
-    DATASET_HF_UPLOAD_REPO_NAME = (
-        f"567-labs/{MODEL_ID.split('/').pop()}-ft-quora-{train_dataset_percentage}"
-    )
-    path = f"/checkpoints/{DATASET_HF_UPLOAD_REPO_NAME}"
-    model.save(path)
-    from huggingface_hub import HfApi
+def train_logistic_regression():
+    import pandas as pd
+    import pyarrow as pa
+    import glob
+    from sklearn.linear_model import LogisticRegression
     import os
 
-    api = HfApi(token=os.environ["HUGGINGFACE_TOKEN"])
-    api.create_repo(
-        repo_id=DATASET_HF_UPLOAD_REPO_NAME,
-        private=False,
-        repo_type="model",
-        exist_ok=True,
-    )
-    api.upload_folder(
-        folder_path=path,
-        repo_id=DATASET_HF_UPLOAD_REPO_NAME,
-        repo_type="model",
-        multi_commits=True,
-        multi_commits_verbose=True,
-    )
+    # Get all .arrow files in the /cosine-similarity directory
+    arrow_files = glob.glob(f"{COSINE_SIMILARITY_DIR}/*-cossim.arrow")
 
-    return auc
+    # Extract model ids from file names
+    model_ids = set()
+    for file in arrow_files:
+        model_id = (
+            os.path.basename(file)
+            .replace("-train-cossim.arrow", "")
+            .replace("-test-cossim.arrow", "")
+        )
+        model_ids.add(model_id)
+
+    print(f"Models with generated cosine similarities: {model_ids}")
+
+    results = {}
+    for model_name in model_ids:
+        train_file = f"{DATASET_DIR}/cosine-similarity/{model_name}-train-cossim.arrow"
+        test_file = f"{DATASET_DIR}/cosine-similarity/{model_name}-test-cossim.arrow"
+        # Load training data
+        train_df = pa.ipc.open_file(train_file).read_all().to_pandas()
+        # Load test data
+        test_df = pa.ipc.open_file(test_file).read_all().to_pandas()
+
+        # Prepare training data
+        X_train = train_df["cosine_score"].values.reshape(-1, 1)
+        y_train = train_df["is_duplicate"]
+
+        # Prepare test data
+        X_test = test_df["cosine_score"].values.reshape(-1, 1)
+        y_test = test_df["is_duplicate"]
+
+        # Initialize the model
+        model = LogisticRegression()
+
+        # Train the model
+        model.fit(X_train, y_train)
+        predictions = model.predict(X_test)
+
+        model_eval = {
+            metric: function(y_test, predictions)
+            for metric, function in METRICS.items()
+        }
+
+        results[model_name] = model_eval
+
+    print(results)
+    return results
 
 
 @stub.local_entrypoint()
 def main():
+    results = train_logistic_regression.remote()
+    import json
+
+    with open("output.json", "w") as f:
+        json.dump(results, f)
     from tabulate import tabulate
-    import matplotlib.pyplot as plt
 
     percentages = [0.1, 0.3, 0.5, 0.7, 0.9]
-    res = {}
-    for percentage, auc in zip(
-        percentages, train_model.map(percentages, order_outputs=True)
-    ):
-        res[percentage] = auc
 
-    for percentage in percentages:
-        print(res[percentage])
-
-    values = [[model, auc] for model, auc in res.items()]
+    values = []
+    eval_metrics = [eval for eval in METRICS]
+    eval_metrics.remove("AUC")
+    eval_metrics.insert(0, "AUC")
+    for model in results:
+        model_evals = [model] + [results[model][eval] for eval in eval_metrics]
+        values.append(model_evals)
     values.sort(key=lambda x: x[1], reverse=True)
-    print(tabulate(values, ["Data Percentage", "AUC"]))
-
-    x_values = list(res.keys())
-    y_values = list(res.values())
-
-    plt.plot(
-        x_values, y_values, marker="o"
-    )  # 'o' creates a circle marker at each data point
-    plt.xlim(0, 1)  # Set the limit of x-axis from 0 to 1
-    plt.xlabel("Data Percentage")  # Label for x-axis
-    plt.ylabel("AUC Score")  # Label for y-axis
-    plt.title("Data Percentage vs AUC Performance")
-    plt.text(
-        1, 0.897, "Cohere Embedding Model (0.89)", va="center", ha="right"
-    )  # Position the text at the end of the line
-    plt.axhline(
-        y=0.891776,
-        color="r",
-        linestyle="--",
-        label="embed-multilingual-v3.0 ( Cohere ) AUC Performance",
-    )  # Add the horizontal line
-    plt.savefig("res.png")
+    print(tabulate(values, ["Model Name", *eval_metrics]))

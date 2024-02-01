@@ -23,13 +23,13 @@ COHERE_MODELS = ["embed-multilingual-v3.0"]
 
 SEMAPHORE_LIMITS: dict[model_types, int] = {
     "HuggingFace": 20,
-    "OpenAI": 64,
-    "Cohere": 64,
+    "OpenAI": 20,
+    "Cohere": 20,
 }
 
 BATCH_SIZE_CONFIG: dict[model_types, int] = {
     "HuggingFace": 10000,
-    "OpenAI": 128,
+    "OpenAI": 64,
     "Cohere": 96,
 }
 
@@ -61,6 +61,8 @@ image = (
         "tabulate",
         "openai",
         "pyarrow",
+        "tenacity",
+        "diskcache",
     )
     .run_function(download_model)
 )
@@ -139,12 +141,11 @@ def update_dataset_with_embeddings(
 
 @stub.function(image=image, volumes={DATASET_DIR: DATASET_VOLUME})
 def download_dataset():
-    from datasets import load_dataset, load_from_disk
+    from datasets import load_dataset
 
     dataset_path = f"{DATASET_DIR}/{DATASET_NAME}"
 
     if os.path.exists(dataset_path):
-        dataset = load_from_disk(f"{DATASET_DIR}/{DATASET_NAME}")
         return
 
     dataset = load_dataset(DATASET_NAME)
@@ -160,7 +161,7 @@ def download_dataset():
         Secret.from_name("openai"),
         Secret.from_name("cohere"),
     ],
-    timeout=2400,
+    timeout=86400,
     gpu=GPU_CONFIG,
 )
 async def embed_dataset(model_name: str):
@@ -192,11 +193,17 @@ async def embed_dataset(model_name: str):
     batch_size = BATCH_SIZE_CONFIG[model]
     sentences = get_unique_sentences(combined_dataset, sentence_to_id_map, batch_size)
 
-    combined_num_rows = 408652  # Extracted by looking at the size of sentences. But since sentences is a generator, we hard code this
+    combined_num_rows = 408651  # Extracted by looking at the size of sentences. But since sentences is a generator, we hard code this
 
     print(f"Starting embeddding job for {model_name}")
     # We then run an embedding job
-    sentence_embeddings = await embed_model.embed(sentences, combined_num_rows)
+
+    for _ in range(3):
+        try:
+            sentence_embeddings = await embed_model.embed(sentences, combined_num_rows)
+            break
+        except Exception as e:
+            print(f"Encountered {e}")
 
     print(f"Extracted {len(sentence_embeddings)} unique embeddings")
 
@@ -216,7 +223,8 @@ def generate_embeddings():
     import pyarrow as pa
     import os
 
-    test = MODELS + OPENAI_MODELS + COHERE_MODELS
+    # TODO: Embed OpenAI and Cohere again
+    test = COHERE_MODELS
 
     if not os.path.exists(CACHE_DIRECTORY):
         os.makedirs(CACHE_DIRECTORY)
@@ -243,11 +251,28 @@ def generate_embeddings():
             writer.close()
 
         print(f"Cache files generated for {model_name}")
-
-    DATASET_VOLUME.commit()
+        DATASET_VOLUME.commit()
     print("Succesfully saved changes")
+
+
+@stub.function(image=image, volumes={DATASET_DIR: DATASET_VOLUME}, timeout=2400)
+def validate_dataset():
+    from datasets import load_from_disk, concatenate_datasets
+
+    dataset = load_from_disk(f"{DATASET_DIR}/{DATASET_NAME}")
+    test_dataset = dataset["test"]
+    train_dataset = dataset["train"]
+    val_dataset = dataset["val"]
+    combined_dataset = concatenate_datasets([test_dataset, train_dataset, val_dataset])
+
+    for idx, row in enumerate(combined_dataset):
+        s1, s2 = row["questions"]["text"]
+
+        if s1 == "" or s2 == "":
+            raise ValueError(f"Found a duplicate row in row {idx}")
 
 
 @stub.local_entrypoint()
 def main():
+    # download_dataset.remote()
     generate_embeddings.remote()

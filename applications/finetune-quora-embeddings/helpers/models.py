@@ -5,6 +5,8 @@ from cohere import Client
 from openai import AsyncOpenAI
 import asyncio
 from sentence_transformers import SentenceTransformer
+from tenacity import retry, stop_after_attempt, wait_exponential
+from helpers.cache import cache_res
 
 model_types = Literal["OpenAI", "Cohere", "HuggingFace"]
 MODEL_TYPES_VALUES = {"HuggingFace", "OpenAI", "Cohere"}
@@ -27,6 +29,8 @@ class EmbeddingModel:
             self.model_type in MODEL_TYPES_VALUES
         ), f"Invalid model type: {self.model_type}. Expected one of {model_types}"
 
+    @cache_res
+    @retry(stop=stop_after_attempt(7), wait=wait_exponential(multiplier=10, max=240))
     async def _embed_cohere(self, texts: List[str]):
         async with self.semaphore:
             co = Client(os.environ["COHERE_API_KEY"])
@@ -38,14 +42,21 @@ class EmbeddingModel:
             self.tqdm_monitoring_bar.update(len(texts))
             return response.embeddings
 
+    @cache_res
+    @retry(stop=stop_after_attempt(7), wait=wait_exponential(multiplier=10, max=240))
     async def _embed_openai(self, texts: List[str]):
         async with self.semaphore:
             client = AsyncOpenAI()
-            response = await client.embeddings.create(
-                input=texts, model=self.model_name
-            )
-            self.tqdm_monitoring_bar.update(len(texts))
-            return [item.embedding for item in response.data]
+            try:
+                response = await client.embeddings.create(
+                    input=texts, model=self.model_name
+                )
+                self.tqdm_monitoring_bar.update(len(texts))
+                return [item.embedding for item in response.data]
+            except Exception as e:
+                print(f"Error occurred while creating embeddings: {e}")
+                print(texts)
+                raise e
 
     async def embed(self, texts: List[str], batch_size):
         self.tqdm_monitoring_bar = tqdm(total=batch_size)
@@ -65,9 +76,7 @@ class EmbeddingModel:
 
         if self.model_type == "HuggingFace":
             embeddings = []
-            print(f"Loading {self.model_name}")
             model = SentenceTransformer(self.model_name)
-            print(f"Loaded {self.model_name}")
             ttl = 0
             for item in texts:
                 embeddings.extend(model.encode(item))
