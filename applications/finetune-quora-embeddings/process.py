@@ -37,7 +37,7 @@ def generate_cosine_similarity_scores():
 
     # Get all .arrow files in the /cached-embeddings directory
     arrow_files = glob.glob(f"{DATASET_DIR}/cached-embeddings/*.arrow")
-    arrow_files = ["/data/cached-embeddings/text-embedding-3-small-test.arrow"]
+    # arrow_files = ["/data/cached-embeddings/text-embedding-3-small-test.arrow"]
 
     # Create the /cosine-similarity directory if it doesn't exist
     if not os.path.exists(COSINE_SIMILARITY_DIR):
@@ -49,9 +49,9 @@ def generate_cosine_similarity_scores():
             COSINE_SIMILARITY_DIR,
             os.path.basename(file).replace(".arrow", "-cossim.arrow"),
         )
-        # if os.path.exists(new_file_name):
-        #     print(f"Skipping {file} since it has already been processed")
-        #     continue
+        if os.path.exists(new_file_name):
+            print(f"Skipping {file} since it has already been processed")
+            continue
         # Load the original arrow file
         table = pa.ipc.open_file(file).read_all()
         df: DataFrame = table.to_pandas()
@@ -117,9 +117,9 @@ def generate_visualisation():
     import glob
     import io
     import pyarrow as pa
-    import pandas as pd
     from pandas import DataFrame
     import matplotlib.pyplot as plt
+    import textwrap
 
     # Get all .arrow files in the /cached-embeddings directory
     arrow_files = glob.glob(f"{DATASET_DIR}/cosine-similarity/*.arrow")
@@ -127,7 +127,6 @@ def generate_visualisation():
     res = []
     # Copy each .arrow file to the /cosine-similarity directory
     for file in arrow_files:
-        print(file)
         table = pa.ipc.open_file(file).read_all()
         df: DataFrame = table.to_pandas()
 
@@ -137,10 +136,13 @@ def generate_visualisation():
         model_name = os.path.splitext(os.path.basename(file))[0].replace("-cossim", "")
         # Create the plot
         plt.figure()
-        plt.hist(df_label_1, alpha=0.5, label="Similar")
-        plt.hist(df_label_0, alpha=0.5, label="Dissimilar")
-        plt.legend(loc="upper right")
-        plt.title(f"Distribution of Cosine Similarity Scores for {model_name}")
+        plt.hist(df_label_1, alpha=0.5, label="Similar", bins=50)
+        plt.hist(df_label_0, alpha=0.5, label="Dissimilar", bins=50)
+        plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+        plt.tight_layout()
+        plt.subplots_adjust(top=0.85, bottom=0.1, left=0.15, right=0.75)
+        title = f"Distribution of Cosine Similarity Scores for {model_name}"
+        plt.title("\n".join(textwrap.wrap(title, 40)), loc="left", pad=10)
         plt.xlabel("Cosine Similarity Score")
         plt.ylabel("Frequency")
 
@@ -159,12 +161,12 @@ def generate_visualisation():
 def main():
     import os
 
-    generate_cosine_similarity_scores.remote()
+    # generate_cosine_similarity_scores.remote()
 
-    # img_dir = "./img"
-    # if not os.path.exists(img_dir):
-    #     os.makedirs(img_dir)
+    img_dir = "./img"
+    if not os.path.exists(img_dir):
+        os.makedirs(img_dir)
 
-    # for model_name, image_bytes in generate_visualisation.remote():
-    #     with open(f"./img/{model_name}-distribution.png", "wb") as f:
-    #         f.write(image_bytes)
+    for model_name, image_bytes in generate_visualisation.remote():
+        with open(f"./img/{model_name}-distribution.png", "wb") as f:
+            f.write(image_bytes)

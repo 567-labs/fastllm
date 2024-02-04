@@ -3,17 +3,22 @@ from tqdm import tqdm
 import os
 from cohere import Client
 from openai import AsyncOpenAI
-import asyncio
+from diskcache import Cache
 from sentence_transformers import SentenceTransformer
 from tenacity import retry, stop_after_attempt, wait_exponential
-from helpers.cache import cache_res
 
 model_types = Literal["OpenAI", "Cohere", "HuggingFace"]
 MODEL_TYPES_VALUES = {"HuggingFace", "OpenAI", "Cohere"}
 
 
 class EmbeddingModel:
-    def __init__(self, model_name: str, model_type: model_types, max_limit: 20):
+    def __init__(
+        self,
+        model_name: str,
+        model_type: model_types,
+        max_limit: int = 20,
+        expected_iterations: int = float("inf"),
+    ):
         """
         This is an abstract model class which provides an easy to use interface for benchmarking different embedding providers.
 
@@ -24,62 +29,96 @@ class EmbeddingModel:
         self.model_name = model_name
         self.model_type: model_types = model_type
         self.semaphore = Semaphore(max_limit)
+        self.cache = Cache(os.getcwd())
+        self.expected_iterations = expected_iterations
 
         assert (
             self.model_type in MODEL_TYPES_VALUES
         ), f"Invalid model type: {self.model_type}. Expected one of {model_types}"
 
-    @cache_res
-    @retry(stop=stop_after_attempt(7), wait=wait_exponential(multiplier=10, max=240))
-    async def _embed_cohere(self, texts: List[str]):
-        async with self.semaphore:
-            co = Client(os.environ["COHERE_API_KEY"])
-            response = co.embed(
-                texts=texts,
-                model=self.model_name,
-                input_type="clustering",
-            )
-            self.tqdm_monitoring_bar.update(len(texts))
-            return response.embeddings
+    @classmethod
+    def from_hf(cls, model_name: str, expected_iterations: int):
+        return cls(
+            model_name,
+            model_type="HuggingFace",
+            max_limit=float("inf"),
+            expected_iterations=expected_iterations,
+        )
 
-    @cache_res
-    @retry(stop=stop_after_attempt(7), wait=wait_exponential(multiplier=10, max=240))
+    @classmethod
+    def from_openai(cls, model_name: str, max_limit=20):
+        return cls(model_name, model_type="OpenAI", max_limit=max_limit)
+
+    @classmethod
+    def from_cohere(cls, model_name: str):
+        return cls(model_name, model_type="Cohere")
+
+    def _embed_cohere(self, texts: List[str]):
+        import json
+        from cohere.client import EmbedJob
+
+        co = Client(os.environ["COHERE_API_KEY"])
+        jsonl_file = "texts.jsonl"
+
+        with open(jsonl_file, "w") as file:
+            for text in texts:
+                json.dump({"text": text}, file)
+                file.write("\n")
+
+        input_dataset = co.create_dataset(
+            name="embed-job",
+            data=open(jsonl_file, "rb"),
+            dataset_type="embed-input",
+        )
+        input_dataset.await_validation()
+        embed_job: EmbedJob = co.create_embed_job(
+            dataset_id=input_dataset.id,
+            input_type="clustering",
+            model="embed-english-v3.0",
+            truncate="END",
+        )
+        embed_job.wait()
+        output_dataset = co.get_dataset(embed_job.output.id)
+        results = []
+        for record in output_dataset:
+            results.append(record["embedding"])
+        return results
+
+    @retry(stop=stop_after_attempt(4), wait=wait_exponential(multiplier=8, max=240))
     async def _embed_openai(self, texts: List[str]):
+        key = texts[0]
+        cached_value = self.cache.get(key)
+        if cached_value is not None:
+            return cached_value
+
         async with self.semaphore:
             client = AsyncOpenAI()
             try:
                 response = await client.embeddings.create(
                     input=texts, model=self.model_name
                 )
-                self.tqdm_monitoring_bar.update(len(texts))
-                return [item.embedding for item in response.data]
+                embeddings = [item.embedding for item in response.data]
+                self.cache.set(key, embeddings)
+                return embeddings
             except Exception as e:
                 print(f"Error occurred while creating embeddings: {e}")
-                print(texts)
                 raise e
 
-    async def embed(self, texts: List[str], batch_size):
-        self.tqdm_monitoring_bar = tqdm(total=batch_size)
+    async def embed(self, texts: List[str]):
+        from tqdm.asyncio import tqdm_asyncio
 
-        self.tqdm_monitoring_bar.set_description_str(
-            f"Embedding Progress for {self.model_name}"
-        )
         if self.model_type == "Cohere":
-            coros = [self._embed_cohere(sentence_group) for sentence_group in texts]
-            res = await asyncio.gather(*coros)
-            return [item for sublist in res for item in sublist]
+            for sentence_group in texts:
+                return self._embed_cohere(sentence_group)
 
         if self.model_type == "OpenAI":
             coros = [self._embed_openai(sentence_group) for sentence_group in texts]
-            res = await asyncio.gather(*coros)
-            return [item for sublist in res for item in sublist]
+            results = await tqdm_asyncio.gather(*coros)
+            return [item for sublist in results for item in sublist]
 
         if self.model_type == "HuggingFace":
             embeddings = []
             model = SentenceTransformer(self.model_name)
-            ttl = 0
-            for item in texts:
+            for item in tqdm(texts, total=self.expected_iterations):
                 embeddings.extend(model.encode(item))
-                self.tqdm_monitoring_bar.update(len(item))
-                ttl += len(item)
             return embeddings

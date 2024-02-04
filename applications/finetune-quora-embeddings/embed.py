@@ -30,7 +30,7 @@ SEMAPHORE_LIMITS: dict[model_types, int] = {
 BATCH_SIZE_CONFIG: dict[model_types, int] = {
     "HuggingFace": 10000,
     "OpenAI": 64,
-    "Cohere": 96,
+    "Cohere": float("inf"),
 }
 
 GPU_CONFIG = gpu.A100()
@@ -53,6 +53,7 @@ def determine_if_model_has_generated_embeddings(model_name):
 
 image = (
     Image.debian_slim()
+    .env({"Random": "123"})
     .pip_install(
         "cohere",
         "datasets",
@@ -162,50 +163,56 @@ def download_dataset():
         Secret.from_name("cohere"),
     ],
     timeout=86400,
-    gpu=GPU_CONFIG,
 )
 async def embed_dataset(model_name: str):
     from datasets import load_from_disk, concatenate_datasets
+    import math
+    import time
 
     # We verify if the model has already been embedded
     if determine_if_model_has_generated_embeddings(model_name):
+        print(f"Embedding has already been generated for {model_name}")
         return
 
+    combined_num_rows = 408651  # Extract
     # First Load the model
     if model_name in MODELS:
         model: model_types = "HuggingFace"
+        embed_model = EmbeddingModel.from_hf(
+            model_name, math.ceil(combined_num_rows / BATCH_SIZE_CONFIG["HuggingFace"])
+        )
+    elif model_name in COHERE_MODELS:
+        embed_model = EmbeddingModel.from_cohere(model_name)
+        model = "Cohere"
     elif model_name in OPENAI_MODELS:
         model: model_types = "OpenAI"
-    elif model_name in COHERE_MODELS:
-        model: model_types = "Cohere"
+        embed_model = EmbeddingModel.from_openai(model_name, SEMAPHORE_LIMITS["OpenAI"])
     else:
         raise ValueError(
             f"Invalid Model of {model_name} was supplied to embed_dataset function"
         )
 
-    embed_model = EmbeddingModel(model_name, model, max_limit=SEMAPHORE_LIMITS[model])
     dataset = load_from_disk(f"{DATASET_DIR}/{DATASET_NAME}")
     test_dataset = dataset["test"]
     train_dataset = dataset["train"]
     combined_dataset = concatenate_datasets([test_dataset, train_dataset])
 
     sentence_to_id_map = dict()
-    batch_size = BATCH_SIZE_CONFIG[model]
-    sentences = get_unique_sentences(combined_dataset, sentence_to_id_map, batch_size)
 
-    combined_num_rows = 408651  # Extracted by looking at the size of sentences. But since sentences is a generator, we hard code this
-
-    print(f"Starting embeddding job for {model_name}")
-    # We then run an embedding job
-
-    for _ in range(3):
+    for idx in range(3):
+        print(f"Iteration {idx}")
         try:
-            sentence_embeddings = await embed_model.embed(sentences, combined_num_rows)
-            break
+            sentences = get_unique_sentences(
+                combined_dataset, sentence_to_id_map, BATCH_SIZE_CONFIG[model]
+            )
+            sentence_embeddings = await embed_model.embed(sentences)
+            if len(sentence_embeddings) == combined_num_rows:
+                break
         except Exception as e:
-            print(f"Encountered {e}")
-
-    print(f"Extracted {len(sentence_embeddings)} unique embeddings")
+            print(
+                f"Encountered Exception of {e}. Retrying embedding eneration in 30 seconds again"
+            )
+            time.sleep(30)
 
     return update_dataset_with_embeddings(
         train_dataset,
@@ -223,8 +230,7 @@ def generate_embeddings():
     import pyarrow as pa
     import os
 
-    # TODO: Embed OpenAI and Cohere again
-    test = COHERE_MODELS
+    test = OPENAI_MODELS[1:]
 
     if not os.path.exists(CACHE_DIRECTORY):
         os.makedirs(CACHE_DIRECTORY)

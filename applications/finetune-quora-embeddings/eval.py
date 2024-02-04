@@ -87,21 +87,18 @@ def train_logistic_regression():
 
         results[model_name] = model_eval
 
-    print(results)
     return results
 
 
 @stub.local_entrypoint()
 def main():
-    results = train_logistic_regression.remote()
     import json
-
-    with open("output.json", "w") as f:
-        json.dump(results, f)
     from tabulate import tabulate
 
-    percentages = [0.1, 0.3, 0.5, 0.7, 0.9]
+    results = train_logistic_regression.remote()
 
+    with open("output.json", "w") as f:
+        json.dump(results, f, indent=2)
     values = []
     eval_metrics = [eval for eval in METRICS]
     eval_metrics.remove("AUC")
