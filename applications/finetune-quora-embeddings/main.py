@@ -28,6 +28,7 @@ MAX_CHECKPOINTS_SAVED = 3
 
 # Wandb Configuration
 WANDB_PROJECT_NAME = "quora-finetuning"
+ENABLE_LOGGING = True
 
 stub = Stub("finetune-quora-embeddings")
 
@@ -85,25 +86,26 @@ def generate_quora_input_example(examples):
     timeout=86400,
     secret=Secret.from_name("wandb"),
 )
-def finetune_model():
+def finetune_model(holdout_percentage: float = 0.9):
     from sentence_transformers import SentenceTransformer, models, losses, evaluation
     from datasets import load_from_disk
     from torch import nn
     from torch.utils.data import DataLoader
     import wandb
 
-    # Initialise Wandb
-    wandb.init(
-        # set the wandb project where this run will be logged
-        project=WANDB_PROJECT_NAME,
-        # track hyperparameters and run metadata
-        config={
-            "epochs": EPOCHS,
-            "batch_size": BATCH_SIZE,
-            "scheduler": SCHEDULER,
-            "test_percentage": TEST_PERCENTAGE,
-        },
-    )
+    if ENABLE_LOGGING:
+        # Initialise Wandb
+        wandb.init(
+            # set the wandb project where this run will be logged
+            project=WANDB_PROJECT_NAME,
+            # track hyperparameters and run metadata
+            config={
+                "epochs": EPOCHS,
+                "batch_size": BATCH_SIZE,
+                "scheduler": SCHEDULER,
+                "test_percentage": TEST_PERCENTAGE,
+            },
+        )
 
     # Validate that sentence tranformer works
     model = SentenceTransformer(MODEL_ID)
@@ -140,7 +142,10 @@ def finetune_model():
 
     def log_metrics(score, epoch, steps):
         print(f"Epoch {epoch}: score {score}")
-        wandb.log({"score": score})
+
+        if ENABLE_LOGGING:
+            wandb.log({"score": score})
+
         if SAVE_CHECKPOINT:
             CHECKPOINT_VOLUME.commit()
 
