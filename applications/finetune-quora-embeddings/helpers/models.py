@@ -1,4 +1,5 @@
 import enum
+from math import log
 from typing import List
 from regex import P
 from tqdm import tqdm
@@ -99,19 +100,30 @@ class EmbeddingModel:
         from tqdm.asyncio import tqdm_asyncio
 
         if self.provider == Provider.COHERE:
-            for sentence_group in texts:
-                return self._embed_cohere(sentence_group)
+            sentence_group = texts[0]  # Cohere only supports 1 batch of sentences
+            print(f"Using Cohere with {len(sentence_group)} sentences")
+            return self._embed_cohere(sentence_group)
 
         if self.provider == Provider.OPENAI:
+            texts = [text for text in texts if len(text) > 0]
+            print(
+                f"Using OpenAI {self.model_name} with {len(texts)} batchs of sentences"
+            )
             coros = [self._embed_openai(sentence_group) for sentence_group in texts]
             results = await tqdm_asyncio.gather(*coros)
             return [item for sublist in results for item in sublist]
 
         if self.provider == Provider.HUGGINGFACE:
+            texts = [text for text in texts if len(text) > 0]
+            print(
+                f"Using HuggingFace {self.model_name} with {len(texts)} batchs of sentences"
+            )
             from sentence_transformers import SentenceTransformer
 
             embeddings = []
             model = SentenceTransformer(self.model_name)
+            model.to("cuda")
+
             for item in tqdm(texts):
                 embeddings.extend(model.encode(item))
             return embeddings

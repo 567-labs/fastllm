@@ -46,6 +46,8 @@ def download_model():
 def has_embedding_cache(model_name):
     if MODEL_TO_PROVIDER[model_name] == Provider.HUGGINGFACE:
         model_id = model_name.split("/")[-1]
+    else:
+        model_id = model_name
 
     train_file_path = f"{CACHE_DIRECTORY}/{model_id}-train.arrow"
     test_file_path = f"{CACHE_DIRECTORY}/{model_id}-test.arrow"
@@ -183,7 +185,7 @@ async def split_embed_train_test(model_name: str):
     # First Load the model
     if MODEL_TO_PROVIDER[model_name] == Provider.HUGGINGFACE:
         embed_model = EmbeddingModel.from_hf(model_name)
-    elif MODEL_TO_PROVIDER[model_name] == Provider.COHRE:
+    elif MODEL_TO_PROVIDER[model_name] == Provider.COHERE:
         embed_model = EmbeddingModel.from_cohere(model_name)
     elif MODEL_TO_PROVIDER[model_name] == Provider.OPENAI:
         embed_model = EmbeddingModel.from_openai(model_name, max_limit=20)
@@ -200,7 +202,7 @@ async def split_embed_train_test(model_name: str):
     )
     for attempt in retrying:
         with attempt:
-            batch_size = BATCH_SIZE_CONFIG[embed_model.model_type]
+            batch_size = BATCH_SIZE_CONFIG[embed_model.provider]
             sentences = get_unique_sentences(
                 combined_dataset, sentence_to_id_map, batch_size
             )
@@ -229,13 +231,14 @@ def generate_embeddings():
     if not os.path.exists(CACHE_DIRECTORY):
         os.makedirs(CACHE_DIRECTORY)
 
-    for model_name, (train_dataset, test_dataset) in zip(
+    for model_name, resp in zip(
         model_names, split_embed_train_test.map(model_names, order_outputs=True)
     ):
         if has_embedding_cache(model_name):
             print(f"Embedding has already been generated for {model_name}")
             continue
 
+        train_dataset, test_dataset = resp
         model_slug = model_name
         if MODEL_TO_PROVIDER[model_name] == Provider.HUGGINGFACE:
             model_slug = model_name.split("/").pop()
