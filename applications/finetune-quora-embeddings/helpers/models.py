@@ -1,9 +1,7 @@
 import enum
-from math import log
-from typing import List
-from regex import P
-from tqdm import tqdm
 import os
+from typing import List
+from tqdm import tqdm
 from cohere import Client
 from openai import AsyncOpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -120,10 +118,9 @@ class EmbeddingModel:
             )
             from sentence_transformers import SentenceTransformer
 
-            embeddings = []
             model = SentenceTransformer(self.model_name)
             model.to("cuda")
-
-            for item in tqdm(texts):
-                embeddings.extend(model.encode(item))
+            embeddings = model.encode(texts, show_progress_bar=True)
+            print(f"Embeddings shape: {embeddings.shape}")
+            print(f"Embeddings: {embeddings}")
             return embeddings

@@ -1,7 +1,4 @@
 import os
-import enum
-
-from regex import P
 from modal import Volume, Image, Stub, gpu, Secret
 from helpers.models import EmbeddingModel, Provider
 import tenacity
@@ -26,12 +23,12 @@ MODEL_TO_PROVIDER = {
 N_JOBS = 30
 
 BATCH_SIZE_CONFIG: dict[Provider, int] = {
-    Provider.HUGGINGFACE: 10000,
+    Provider.HUGGINGFACE: 64,
     Provider.OPENAI: 64,
     Provider.COHERE: float("inf"),
 }
 
-GPU_CONFIG = gpu.A100()
+GPU_CONFIG = gpu.A10G()
 
 
 def download_model():
@@ -74,7 +71,7 @@ image = (
 stub = Stub("embeddings")
 
 
-def get_unique_sentences(
+def return_sentence_batchs(
     test_dataset: Dataset, sentence_to_id_mapping: dict, batch_size=1000
 ):
     seen = set()
@@ -160,6 +157,7 @@ def download_dataset():
 
 @stub.function(
     image=image,
+    gpu=GPU_CONFIG,
     volumes={DATASET_DIR: DATASET_VOLUME},
     secrets=[
         Secret.from_name("openai"),
@@ -202,13 +200,17 @@ async def split_embed_train_test(model_name: str):
     )
     for attempt in retrying:
         with attempt:
-            batch_size = BATCH_SIZE_CONFIG[embed_model.provider]
-            sentences = get_unique_sentences(
-                combined_dataset, sentence_to_id_map, batch_size
-            )
-            sentence_embeddings = await embed_model.embed(sentences)
-            if len(sentence_embeddings) == combined_num_rows:
-                break
+            try:
+                batch_size = BATCH_SIZE_CONFIG[embed_model.provider]
+                sentences = return_sentence_batchs(
+                    combined_dataset, sentence_to_id_map, batch_size
+                )
+                sentence_embeddings = await embed_model.embed(sentences)
+                if len(sentence_embeddings) == combined_num_rows:
+                    break
+            except Exception as e:
+                print(f"Error occurred while creating embeddings: {e}")
+                raise e
 
     return update_dataset_with_embeddings(
         train_dataset,
