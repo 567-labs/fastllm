@@ -19,23 +19,24 @@ source venv/bin/activate
 pip3 install -r requirements
 ```
 
-Once you've done so, you'll need to authenticate with Modal. To do so, run the command `modal token new`. 
+Once you've done so, you'll need to authenticate with Modal. To do so, run the command `modal token new`.
 
 This will open up a new tab in your default browser and allow you to run, deploy and configure all of your Modal applications from your terminal.
 
 ## Benchmarking the Model
 
-> We've configured the OpenAI and Cohere client sdks in our benchmarking script. To make sure it works, you'll need to have added OpenAI and Cohere in our `Modal` secrets. 
-> 
-> You'll need the following enviroment variables 
+> We've configured the OpenAI and Cohere client sdks in our benchmarking script. To make sure it works, you'll need to have added OpenAI and Cohere in our `Modal` secrets.
+>
+> You'll need the following enviroment variables
+>
 > - COHERE_API_KEY
 > - OPENAI_API_KEY
-> ________
+>
+> ---
 
 You can configure the OSS models tested by modifying the `MODELS` variable at the top of the `benchmark.py` file ( See below for an example )
 
-
-Once you've configured the necessary secrets and models to benchmark against, you can run the script by running the command 
+Once you've configured the necessary secrets and models to benchmark against, you can run the script by running the command
 
 ```
 modal run benchmark.py
@@ -43,15 +44,15 @@ modal run benchmark.py
 
 In our case, we obtained the following results when we ran the script
 
-| Model Name                         |      AUC    |
-|------------------------------------|-------------|
-| sentence-transformers/gtr-t5-large | 0.93892     |
-| embed-multilingual-v3.0            | 0.938904    |
-| llmrails/ember-v1                  | 0.937499    |
-| infgrad/stella-base-en-v2          | 0.934832    |
-| BAAI/bge-base-en-v1.5              | 0.931893    |
-| thenlper/gte-large                 | 0.93085     |
-| text-embeddings-ada-v2             | 0.928656    |
+| Model Name                         | AUC      |
+| ---------------------------------- | -------- |
+| sentence-transformers/gtr-t5-large | 0.93892  |
+| embed-multilingual-v3.0            | 0.938904 |
+| llmrails/ember-v1                  | 0.937499 |
+| infgrad/stella-base-en-v2          | 0.934832 |
+| BAAI/bge-base-en-v1.5              | 0.931893 |
+| thenlper/gte-large                 | 0.93085  |
+| text-embeddings-ada-v2             | 0.928656 |
 
 Note that your results might vary slightly.
 
@@ -59,10 +60,10 @@ Note that your results might vary slightly.
 
 > We've configured wandb support for this specific script - so make sure to have added wandb in your `Modal` secrets
 
-Now that we've downloaded our wikipedia dataset, we can now embed the entire dataset using our `main.py` script. We can run it using the command 
+Now that we've downloaded our wikipedia dataset, we can now embed the entire dataset using our `main.py` script. We can run it using the command
 
 ```
 modal run main.py
 ```
 
-This will kick start a fine tuning job and load the `Quora` dataset into a volume and save it. Each epoch run will take ~6-15 minutes. 
+This will kick start a fine tuning job and load the `Quora` dataset into a volume and save it. Each epoch run will take ~6-15 minutes.
