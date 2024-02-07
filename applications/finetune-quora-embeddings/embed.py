@@ -10,7 +10,7 @@ DATASET_VOLUME = Volume.persisted("datasets")
 CACHE_DIRECTORY = f"{DATASET_DIR}/cached-embeddings"
 
 # Model Configs
-MODELS = [
+HF_MODELS = [
     "BAAI/bge-base-en-v1.5",
     "llmrails/ember-v1",
     "thenlper/gte-large",
@@ -39,13 +39,13 @@ GPU_CONFIG = gpu.A100()
 def download_model():
     from sentence_transformers import SentenceTransformer
 
-    for model_name in MODELS:
+    for model_name in HF_MODELS:
         print(f"Downloading and caching model: {model_name}")
         SentenceTransformer(model_name)
 
 
-def determine_if_model_has_generated_embeddings(model_name):
-    model_id = model_name.split("/").pop() if model_name in MODELS else model_name
+def has_embedding_cache(model_name):
+    model_id = model_name.split("/").pop() if model_name in HF_MODELS else model_name
     train_file_path = f"{CACHE_DIRECTORY}/{model_id}-train.arrow"
     test_file_path = f"{CACHE_DIRECTORY}/{model_id}-test.arrow"
     return os.path.exists(train_file_path) and os.path.exists(test_file_path)
@@ -164,38 +164,32 @@ def download_dataset():
     ],
     timeout=86400,
 )
-async def embed_dataset(model_name: str):
+async def split_embed_train_test(model_name: str):
     from datasets import load_from_disk, concatenate_datasets
-    import math
-    import time
 
     # We verify if the model has already been embedded
-    if determine_if_model_has_generated_embeddings(model_name):
+    if has_embedding_cache(model_name):
         print(f"Embedding has already been generated for {model_name}")
         return
 
+    # Load the dataset for embedding
+    dataset = load_from_disk(f"{DATASET_DIR}/{DATASET_NAME}")
+    test_dataset = dataset["test"]
+    train_dataset = dataset["train"]
+    combined_dataset = concatenate_datasets([test_dataset, train_dataset])
+
     combined_num_rows = 408651  # Extract
     # First Load the model
-    if model_name in MODELS:
-        model: model_types = "HuggingFace"
-        embed_model = EmbeddingModel.from_hf(
-            model_name, math.ceil(combined_num_rows / BATCH_SIZE_CONFIG["HuggingFace"])
-        )
+    if model_name in HF_MODELS:
+        embed_model = EmbeddingModel.from_hf(model_name)
     elif model_name in COHERE_MODELS:
         embed_model = EmbeddingModel.from_cohere(model_name)
-        model = "Cohere"
     elif model_name in OPENAI_MODELS:
-        model: model_types = "OpenAI"
         embed_model = EmbeddingModel.from_openai(model_name, SEMAPHORE_LIMITS["OpenAI"])
     else:
         raise ValueError(
             f"Invalid Model of {model_name} was supplied to embed_dataset function"
         )
-
-    dataset = load_from_disk(f"{DATASET_DIR}/{DATASET_NAME}")
-    test_dataset = dataset["test"]
-    train_dataset = dataset["train"]
-    combined_dataset = concatenate_datasets([test_dataset, train_dataset])
 
     sentence_to_id_map = dict()
 
@@ -230,22 +224,21 @@ def generate_embeddings():
     import pyarrow as pa
     import os
 
-    test = OPENAI_MODELS[1:]
+    model_names = HF_MODELS + COHERE_MODELS + OPENAI_MODELS
 
     if not os.path.exists(CACHE_DIRECTORY):
         os.makedirs(CACHE_DIRECTORY)
 
-    for model_name, res in zip(test, embed_dataset.map(test, order_outputs=True)):
-        if determine_if_model_has_generated_embeddings(model_name):
-            print(
-                f"Cache Data for {model_name} already exists. Skipping the generation"
-            )
+    for model_name, (train_dataset, test_dataset) in zip(
+        model_names, split_embed_train_test.map(model_names, order_outputs=True)
+    ):
+        if has_embedding_cache(model_name):
+            print(f"Embedding has already been generated for {model_name}")
             continue
-        print(f"Generated embeddings for {model_name}")
 
-        train_dataset, test_dataset = res
-
-        model_id = model_name.split("/").pop() if model_name in MODELS else model_name
+        model_id = (
+            model_name.split("/").pop() if model_name in HF_MODELS else model_name
+        )
         with pa.OSFile(f"{CACHE_DIRECTORY}/{model_id}-train.arrow", "wb") as sink:
             writer = pa.RecordBatchFileWriter(sink, train_dataset.schema)
             writer.write_table(train_dataset)

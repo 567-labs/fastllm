@@ -42,7 +42,6 @@ class EmbeddingModel:
             model_name,
             model_type="HuggingFace",
             max_limit=float("inf"),
-            expected_iterations=expected_iterations,
         )
 
     @classmethod
@@ -119,6 +118,6 @@ class EmbeddingModel:
         if self.model_type == "HuggingFace":
             embeddings = []
             model = SentenceTransformer(self.model_name)
-            for item in tqdm(texts, total=self.expected_iterations):
+            for item in tqdm(texts):
                 embeddings.extend(model.encode(item))
             return embeddings
