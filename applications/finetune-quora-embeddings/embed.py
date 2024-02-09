@@ -1,6 +1,7 @@
-from modal import Volume, Image, Stub, gpu, Secret
 import os
-from helpers.models import EmbeddingModel, model_types
+from modal import Volume, Image, Stub, gpu, Secret
+from helpers.models import EmbeddingModel, Provider
+import tenacity
 from datasets import Dataset
 
 # DATASET_CONFIG
@@ -9,43 +10,42 @@ DATASET_DIR = "/data"
 DATASET_VOLUME = Volume.persisted("datasets")
 CACHE_DIRECTORY = f"{DATASET_DIR}/cached-embeddings"
 
-# Model Configs
-MODELS = [
-    "BAAI/bge-base-en-v1.5",
-    "llmrails/ember-v1",
-    "thenlper/gte-large",
-    "infgrad/stella-base-en-v2",
-    "sentence-transformers/gtr-t5-large",
-]
-OPENAI_MODELS = ["text-embedding-3-small", "text-embedding-ada-002"]
 
-COHERE_MODELS = ["embed-multilingual-v3.0"]
-
-SEMAPHORE_LIMITS: dict[model_types, int] = {
-    "HuggingFace": 20,
-    "OpenAI": 20,
-    "Cohere": 20,
+MODEL_TO_PROVIDER = {
+    "BAAI/bge-base-en-v1.5": Provider.HUGGINGFACE,
+    "BAAI/bge-small-en-v1.5": Provider.HUGGINGFACE,
+    "text-embedding-3-small": Provider.OPENAI,
+    "text-embedding-3-large": Provider.OPENAI,
+    "text-embedding-ada-002": Provider.OPENAI,
+    "embed-multilingual-v3.0": Provider.COHERE,
 }
 
-BATCH_SIZE_CONFIG: dict[model_types, int] = {
-    "HuggingFace": 10000,
-    "OpenAI": 64,
-    "Cohere": float("inf"),
+N_JOBS = 30
+
+BATCH_SIZE_CONFIG: dict[Provider, int] = {
+    Provider.HUGGINGFACE: 64,
+    Provider.OPENAI: 64,
+    Provider.COHERE: float("inf"),
 }
 
-GPU_CONFIG = gpu.A100()
+GPU_CONFIG = gpu.A10G()
 
 
 def download_model():
     from sentence_transformers import SentenceTransformer
 
-    for model_name in MODELS:
-        print(f"Downloading and caching model: {model_name}")
-        SentenceTransformer(model_name)
+    for model_name, provider in MODEL_TO_PROVIDER.items():
+        if provider == Provider.HUGGINGFACE:
+            print(f"Downloading and caching model: {model_name}")
+            SentenceTransformer(model_name)
 
 
-def determine_if_model_has_generated_embeddings(model_name):
-    model_id = model_name.split("/").pop() if model_name in MODELS else model_name
+def has_embedding_cache(model_name):
+    if MODEL_TO_PROVIDER[model_name] == Provider.HUGGINGFACE:
+        model_id = model_name.split("/")[-1]
+    else:
+        model_id = model_name
+
     train_file_path = f"{CACHE_DIRECTORY}/{model_id}-train.arrow"
     test_file_path = f"{CACHE_DIRECTORY}/{model_id}-test.arrow"
     return os.path.exists(train_file_path) and os.path.exists(test_file_path)
@@ -71,7 +71,7 @@ image = (
 stub = Stub("embeddings")
 
 
-def get_unique_sentences(
+def return_sentence_batchs(
     test_dataset: Dataset, sentence_to_id_mapping: dict, batch_size=1000
 ):
     seen = set()
@@ -157,6 +157,7 @@ def download_dataset():
 
 @stub.function(
     image=image,
+    gpu=GPU_CONFIG,
     volumes={DATASET_DIR: DATASET_VOLUME},
     secrets=[
         Secret.from_name("openai"),
@@ -164,55 +165,52 @@ def download_dataset():
     ],
     timeout=86400,
 )
-async def embed_dataset(model_name: str):
+async def split_embed_train_test(model_name: str):
     from datasets import load_from_disk, concatenate_datasets
-    import math
-    import time
 
     # We verify if the model has already been embedded
-    if determine_if_model_has_generated_embeddings(model_name):
+    if has_embedding_cache(model_name):
         print(f"Embedding has already been generated for {model_name}")
         return
 
-    combined_num_rows = 408651  # Extract
-    # First Load the model
-    if model_name in MODELS:
-        model: model_types = "HuggingFace"
-        embed_model = EmbeddingModel.from_hf(
-            model_name, math.ceil(combined_num_rows / BATCH_SIZE_CONFIG["HuggingFace"])
-        )
-    elif model_name in COHERE_MODELS:
-        embed_model = EmbeddingModel.from_cohere(model_name)
-        model = "Cohere"
-    elif model_name in OPENAI_MODELS:
-        model: model_types = "OpenAI"
-        embed_model = EmbeddingModel.from_openai(model_name, SEMAPHORE_LIMITS["OpenAI"])
-    else:
-        raise ValueError(
-            f"Invalid Model of {model_name} was supplied to embed_dataset function"
-        )
-
+    # Load the dataset for embedding
     dataset = load_from_disk(f"{DATASET_DIR}/{DATASET_NAME}")
     test_dataset = dataset["test"]
     train_dataset = dataset["train"]
     combined_dataset = concatenate_datasets([test_dataset, train_dataset])
 
+    combined_num_rows = 408651  # Extract
+    # First Load the model
+    if MODEL_TO_PROVIDER[model_name] == Provider.HUGGINGFACE:
+        embed_model = EmbeddingModel.from_hf(model_name)
+    elif MODEL_TO_PROVIDER[model_name] == Provider.COHERE:
+        embed_model = EmbeddingModel.from_cohere(model_name)
+    elif MODEL_TO_PROVIDER[model_name] == Provider.OPENAI:
+        embed_model = EmbeddingModel.from_openai(model_name, max_limit=20)
+    else:
+        raise ValueError(
+            f"Invalid Model of {model_name} was supplied to embed_dataset function"
+        )
+
     sentence_to_id_map = dict()
 
-    for idx in range(3):
-        print(f"Iteration {idx}")
-        try:
-            sentences = get_unique_sentences(
-                combined_dataset, sentence_to_id_map, BATCH_SIZE_CONFIG[model]
-            )
-            sentence_embeddings = await embed_model.embed(sentences)
-            if len(sentence_embeddings) == combined_num_rows:
-                break
-        except Exception as e:
-            print(
-                f"Encountered Exception of {e}. Retrying embedding eneration in 30 seconds again"
-            )
-            time.sleep(30)
+    retrying = tenacity.Retrying(
+        wait=tenacity.wait_exponential(multiplier=1, min=4, max=10),
+        stop=tenacity.stop_after_attempt(5),
+    )
+    for attempt in retrying:
+        with attempt:
+            try:
+                batch_size = BATCH_SIZE_CONFIG[embed_model.provider]
+                sentences = return_sentence_batchs(
+                    combined_dataset, sentence_to_id_map, batch_size
+                )
+                sentence_embeddings = await embed_model.embed(sentences)
+                if len(sentence_embeddings) == combined_num_rows:
+                    break
+            except Exception as e:
+                print(f"Error occurred while creating embeddings: {e}")
+                raise e
 
     return update_dataset_with_embeddings(
         train_dataset,
@@ -230,28 +228,29 @@ def generate_embeddings():
     import pyarrow as pa
     import os
 
-    test = OPENAI_MODELS[1:]
+    model_names = list(MODEL_TO_PROVIDER.keys())
 
     if not os.path.exists(CACHE_DIRECTORY):
         os.makedirs(CACHE_DIRECTORY)
 
-    for model_name, res in zip(test, embed_dataset.map(test, order_outputs=True)):
-        if determine_if_model_has_generated_embeddings(model_name):
-            print(
-                f"Cache Data for {model_name} already exists. Skipping the generation"
-            )
+    for model_name, resp in zip(
+        model_names, split_embed_train_test.map(model_names, order_outputs=True)
+    ):
+        if has_embedding_cache(model_name):
+            print(f"Embedding has already been generated for {model_name}")
             continue
-        print(f"Generated embeddings for {model_name}")
 
-        train_dataset, test_dataset = res
+        train_dataset, test_dataset = resp
+        model_slug = model_name
+        if MODEL_TO_PROVIDER[model_name] == Provider.HUGGINGFACE:
+            model_slug = model_name.split("/").pop()
 
-        model_id = model_name.split("/").pop() if model_name in MODELS else model_name
-        with pa.OSFile(f"{CACHE_DIRECTORY}/{model_id}-train.arrow", "wb") as sink:
+        with pa.OSFile(f"{CACHE_DIRECTORY}/{model_slug}-train.arrow", "wb") as sink:
             writer = pa.RecordBatchFileWriter(sink, train_dataset.schema)
             writer.write_table(train_dataset)
             writer.close()
 
-        with pa.OSFile(f"{CACHE_DIRECTORY}/{model_id}-test.arrow", "wb") as sink:
+        with pa.OSFile(f"{CACHE_DIRECTORY}/{model_slug}-test.arrow", "wb") as sink:
             writer = pa.RecordBatchFileWriter(sink, test_dataset.schema)
             writer.write_table(test_dataset)
             writer.close()
@@ -266,9 +265,11 @@ def validate_dataset():
     from datasets import load_from_disk, concatenate_datasets
 
     dataset = load_from_disk(f"{DATASET_DIR}/{DATASET_NAME}")
-    test_dataset = dataset["test"]
-    train_dataset = dataset["train"]
-    val_dataset = dataset["val"]
+    test_dataset, train_dataset, val_dataset = (
+        dataset["test"],
+        dataset["train"],
+        dataset["val"],
+    )
     combined_dataset = concatenate_datasets([test_dataset, train_dataset, val_dataset])
 
     for idx, row in enumerate(combined_dataset):
