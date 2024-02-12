@@ -1,0 +1,18 @@
+# Reference: https://docs.ellipsis.dev
+version: 1.1
+pr_review:
+  auto_review_enabled: true
+  auto_summarize_pr: true
+  confidence_threshold: 0.85
+  rules:
+    # Control what gets flagged during PR review with custom rules. Here are some to get you started:
+    - "Code should be DRY (Dont Repeat Yourself)"
+    - "Extremely Complicated Code Needs Comments"
+    - "Functions should only do one thing"
+    - "Minimize mutable state"
+    - "Avoid using global variables"
+    - "Use generators and list comprehensions rather than for loops"
+    - "Everything should be very idiomatic Python code"
+    - "Use Descriptive Variable and Constant Names"
+    - "Function and Method Naming Should Follow Consistent Patterns"
+    - "Assertions should always have an error message that is formatted well."
