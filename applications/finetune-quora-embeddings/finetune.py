@@ -206,12 +206,12 @@ def finetune_model(dataset_pct: float):
 
     # Initialise the model with its dense layer and the loss/evaluator objects
     model = SentenceTransformer(MODEL_ID)
-    dense_layer = models.Dense(
-        in_features=model.get_sentence_embedding_dimension(),
-        out_features=MODEL_OUT_LAYER_DIM,
-        activation_function=nn.Tanh(),
-    )
-    model = SentenceTransformer(modules=[model, dense_layer])
+    # dense_layer = models.Dense(
+    #     in_features=model.get_sentence_embedding_dimension(),
+    #     out_features=MODEL_OUT_LAYER_DIM,
+    #     activation_function=nn.Tanh(),
+    # )
+    # model = SentenceTransformer(modules=[model, dense_layer])
     train_loss = losses.OnlineContrastiveLoss(model)
     train_examples = format_dataset(train_dataset)
     test_examples = format_dataset(test_dataset)
@@ -244,6 +244,7 @@ def finetune_model(dataset_pct: float):
             f"Iteration {iteration+1}: {curr_eval}, eval: ( {best_eval_perf}, {time_step} )"
         )
         if curr_eval > best_eval_perf:
+            print(f"Previous Eval: {best_eval_perf}, new Eval : {curr_eval}")
             best_eval = (curr_eval, iteration)
 
     predictions, test_labels = generate_prediction_labels(
@@ -260,9 +261,9 @@ def finetune_model(dataset_pct: float):
 def main():
     import json
 
-    PERCENTAGES = [0.01]
+    PERCENTAGES = [0.7, 0.9]
     DATASET_SIZE = 261317
-    cache_file = "model_perf_dense.json"
+    cache_file = "model_perf.json"
     try:
         with open(cache_file, "r") as json_file:
             model_perf = json.load(json_file)
@@ -270,6 +271,7 @@ def main():
         model_perf = {}
 
     for item in finetune_model.map(PERCENTAGES):
+        print(item)
         dataset_pct, results = item
         model_perf[str(dataset_pct)] = results
 
