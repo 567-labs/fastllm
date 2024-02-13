@@ -149,20 +149,20 @@ def download_dataset():
     DATASET_VOLUME.commit()
 
 
-def load_model(model_name: str) -> EmbeddingModel:
-    combined_num_rows = 408651  # Extract
-    # First Load the model
+@classmethod
+def from_name(cls, model_name: str) -> EmbeddingModel:
     if MODEL_TO_PROVIDER[model_name] == Provider.HUGGINGFACE:
-        embed_model = EmbeddingModel.from_hf(model_name)
-    elif MODEL_TO_PROVIDER[model_name] == Provider.COHERE:
-        embed_model = EmbeddingModel.from_cohere(model_name)
-    elif MODEL_TO_PROVIDER[model_name] == Provider.OPENAI:
-        embed_model = EmbeddingModel.from_openai(model_name, max_limit=20)
-    else:
-        raise ValueError(
-            f"Invalid Model of {model_name} was supplied to embed_dataset function"
-        )
-    return embed_model
+        return EmbeddingModel.from_hf(model_name)
+
+    if MODEL_TO_PROVIDER[model_name] == Provider.COHERE:
+        return EmbeddingModel.from_cohere(model_name)
+
+    if MODEL_TO_PROVIDER[model_name] == Provider.OPENAI:
+        return EmbeddingModel.from_openai(model_name, max_limit=20)
+
+    raise ValueError(
+        f"Invalid Model of {model_name} was supplied to embed_dataset function"
+    )
 
 
 async def process_embeddings(
@@ -218,7 +218,7 @@ async def split_embed_train_test(model_name: str):
 
     # Load the dataset for embedding
     dataset = load_from_disk(f"{DATASET_DIR}/{DATASET_NAME}")
-    embed_model = load_model(model_name)
+    embed_model = EmbeddingModel(model_name)
 
     combined_dataset = concatenate_datasets([dataset["test"], dataset["train"]])
 
@@ -242,12 +242,16 @@ async def split_embed_train_test(model_name: str):
 
 @stub.function(image=image, volumes={DATASET_DIR: DATASET_VOLUME}, timeout=2400)
 def generate_embeddings(model_name):
+    train_dir = f"{CACHE_DIRECTORY}/{model_name}-train.arrow"
+    test_dir = f"{CACHE_DIRECTORY}/{model_name}-test.arrow"
+
     if has_embedding_cache(model_name):
         print(f"Embedding has already been generated for {model_name}")
         continue
 
     train_dataset, test_dataset = split_embed_train_test(model_name)
 
+    start = time.time()
     for split, dataset_generator in [
         ("train", train_dataset),
         ("test", test_dataset),
@@ -256,13 +260,24 @@ def generate_embeddings(model_name):
         for dataset in dataset_generator:
             print(dataset)
             pass
+    total_time = time.time() - start
 
     try:
         DATASET_VOLUME.commit()
         print("Succesfully saved changes")
+        saved = True
     except Exception as e:
         print(f"Error occurred while saving changes: {e}")
+        saved = False
         raise e
+
+    return {
+        "train": train_dir,
+        "test": test_dir,
+        "time (s)": round(total_time, 4),
+        "model": model_name,
+        "is_successful": saved,
+    }
 
 
 def model_slug(model_name):
@@ -293,6 +308,7 @@ def validate_dataset():
 @stub.local_entrypoint()
 def main():
     # download_dataset.remote()
-    generate_embeddings.map(
+    for resp in generate_embeddings.map(
         [model for model in MODEL_TO_PROVIDER.keys() if not has_embedding_cache(model)]
-    )
+    ):
+        print(resp)
