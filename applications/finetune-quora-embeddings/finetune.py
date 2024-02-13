@@ -17,10 +17,18 @@ CACHE_DIRECTORY = f"{DATASET_DIR}/cached-embeddings"
 
 # MODEL CONFIG
 MODEL_ID = "BAAI/bge-base-en-v1.5"
-MODEL_OUT_LAYER_DIM = 256
 
 # Training Configuration
 BATCH_SIZE = 64
+EPOCHS = 6
+WARMUP_STEPS = 500
+EVALUATION_STEPS = 1000
+SCHEDULER = "warmupcosine"
+
+# Output Configuration
+RESULT_FILE = "finetune.json"
+TRAING_DATASET_RUN_SIZES = [64000, 128000]
+MODEL_SAVE_PATH = "/output/"
 
 # Eval Configuration
 METRICS = {
@@ -39,6 +47,7 @@ def download_model():
 
 image = (
     Image.debian_slim()
+    .env({"asdas": "asds"})
     .pip_install("datasets", "sentence-transformers", "scikit-learn", "pandas", "torch")
     .run_function(download_model)
 )
@@ -182,36 +191,25 @@ def generate_prediction_labels(model, train_dataset, test_dataset):
 
 
 @stub.function(
-    image=image, gpu=GPU_CONFIG, volumes={DATASET_DIR: DATASET_VOLUME}, timeout=86400
+    image=image,
+    gpu=GPU_CONFIG,
+    volumes={DATASET_DIR: DATASET_VOLUME},
+    timeout=86400,
 )
-def finetune_model(dataset_pct: float):
+def finetune_model(dataset_size: int):
     from datasets import load_from_disk
-    from sentence_transformers import SentenceTransformer, losses, evaluation, models
-    import math
-    from torch import nn
-
-    assert (
-        isinstance(dataset_pct, float) and 0 < dataset_pct <= 1
-    ), f"Invalid value of {dataset_pct} provided."
+    from sentence_transformers import SentenceTransformer, losses, evaluation
 
     # Load in the dataset
     dataset = load_from_disk(f"{DATASET_DIR}/{DATASET_NAME}")
-
-    print(f"Dataset Train Size: {len(dataset['train'])}")
-    train_amount = math.floor(len(dataset["train"]) * dataset_pct)
-    train_dataset = dataset["train"].select(range(train_amount))
+    train_dataset = dataset["train"].select(range(dataset_size))
     test_dataset = dataset["test"]
 
     print(f"Initialising Model {MODEL_ID}")
 
     # Initialise the model with its dense layer and the loss/evaluator objects
     model = SentenceTransformer(MODEL_ID)
-    # dense_layer = models.Dense(
-    #     in_features=model.get_sentence_embedding_dimension(),
-    #     out_features=MODEL_OUT_LAYER_DIM,
-    #     activation_function=nn.Tanh(),
-    # )
-    # model = SentenceTransformer(modules=[model, dense_layer])
+
     train_loss = losses.OnlineContrastiveLoss(model)
     train_examples = format_dataset(train_dataset)
     test_examples = format_dataset(test_dataset)
@@ -220,60 +218,51 @@ def finetune_model(dataset_pct: float):
     print(f"Generated {len(train_examples)} train examples and {len(test_examples)}")
 
     evaluator = evaluation.BinaryClassificationEvaluator.from_input_examples(
-        test_examples
+        test_examples, batch_size=BATCH_SIZE
     )
-
-    best_eval = (evaluator(model, output_path=None), 0)
-    print(f"Initial Eval: {best_eval}")
-    for iteration in range(6):
-        # Train Model
-        model.fit(
-            train_objectives=[(train_dataloader, train_loss)],
-            evaluator=evaluator,
-            epochs=1,
-        )
-        curr_eval = evaluator(model, output_path=None)
-        best_eval_perf, time_step = best_eval
-
-        if curr_eval >= best_eval_perf and iteration - time_step >= 2:
-            print(
-                f"No Improvement detected in training loss. Final loss was {curr_eval}"
-            )
-            break
-        print(
-            f"Iteration {iteration+1}: {curr_eval}, eval: ( {best_eval_perf}, {time_step} )"
-        )
-        if curr_eval > best_eval_perf:
-            print(f"Previous Eval: {best_eval_perf}, new Eval : {curr_eval}")
-            best_eval = (curr_eval, iteration)
+    loss = []
+    model.fit(
+        train_objectives=[(train_dataloader, train_loss)],
+        evaluator=evaluator,
+        epochs=EPOCHS,
+        warmup_steps=WARMUP_STEPS,
+        save_best_model=True,
+        show_progress_bar=True,
+        output_path=MODEL_SAVE_PATH,
+        scheduler=SCHEDULER,
+        callback=lambda score, epoch, steps: loss.append(score),
+    )
+    model = SentenceTransformer(MODEL_SAVE_PATH)
 
     predictions, test_labels = generate_prediction_labels(
         model, train_dataset, test_dataset
     )
 
-    return dataset_pct, {
+    results = {
         metric: function(test_labels, predictions)
         for metric, function in METRICS.items()
     }
+
+    results["model"] = MODEL_ID
+    results["dataset_size"] = dataset_size
+    results["epochs"] = EPOCHS
+    results["warmup_steps"] = WARMUP_STEPS
+    results["scheduler"] = SCHEDULER
+    results["batch_size"] = BATCH_SIZE
+    results["loss"] = loss
+
+    return results
 
 
 @stub.local_entrypoint()
 def main():
     import json
 
-    PERCENTAGES = [0.7, 0.9]
-    DATASET_SIZE = 261317
-    cache_file = "model_perf.json"
-    try:
-        with open(cache_file, "r") as json_file:
-            model_perf = json.load(json_file)
-    except FileNotFoundError:
-        model_perf = {}
-
-    for item in finetune_model.map(PERCENTAGES):
-        print(item)
-        dataset_pct, results = item
-        model_perf[str(dataset_pct)] = results
-
-    with open(cache_file, "w") as json_file:
-        json.dump(model_perf, json_file, indent=4)
+    with open(RESULT_FILE, "a+") as json_file:
+        for result in finetune_model.map(
+            TRAING_DATASET_RUN_SIZES, order_outputs=False, return_exceptions=True
+        ):
+            if isinstance(result, Exception):
+                print(f"Exception: {result}")
+                continue
+            json_file.write(json.dumps(result, indent=2) + "\n")
