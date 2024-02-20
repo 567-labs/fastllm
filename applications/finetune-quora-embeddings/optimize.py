@@ -7,23 +7,44 @@ import json
 import pandas as pd
 import math
 from typing import List
+import torch.nn.ReLU
 
 # GPU Configuration
 gpu_config = gpu.A100()
 
 # Finetuning Configuration ( Arrays are configurable parameters )
 MODELS = [
-    # "BAAI/bge-base-en-v1.5",
-    "WhereIsAI/UAE-Large-V1"
+    "BAAI/bge-base-en-v1.5",
+    "WhereIsAI/UAE-Large-V1",
+    "thenlper/gte-small",
+    "intfloat/e5-small-v2",
+    "sentence-transformers/all-MiniLM-L12-v2",
 ]
-DENSE_LAYER_DIMS = [2048]
-ACTIVATION_FUNCTIONS = ["Tanh"]  # This is a torch func, we use getattr to read it
-SCHEDULER = ["warmupconstant"]
-DATASET_SIZE = [128000]
-WARMUP_STEPS = [500]
-BATCH_SIZE = 64
+DENSE_LAYER_DIMS = [256, 512, 1024, 2048]
+ACTIVATION_FUNCTIONS = [
+    "Tanh",
+    "ReLU",
+]  # This is a torch func, we use getattr to read it
+SCHEDULER = [
+    "constantlr",
+    "warmupconstant",
+    "warmuplinear",
+    "warmupcosine",
+    "warmupcosinewithhardrestarts",
+]
+DATASET_SIZE = [1000, 2000, 4000, 8000, 16000, 32000, 64000, 128000]
+WARMUP_STEPS = [500, 1000, 1500, 2000]
+BATCH_SIZE = [32, 64]
 MODEL_SAVE_PATH = "/output"
 OPTIMIZATION_METRIC_FUNC = roc_auc_score
+MIN_LEARNING_RATE = 1e-5
+MAX_LEARNING_RATE = 1e-3
+MIN_EPOCHS = 6
+MAX_EPOCHS = 15
+FREEZE_EMBEDDING_MODEL = [
+    True,
+    False,
+]  # True: Embedding Model Dimensions will be frozen
 
 STUDY_NFS = NetworkFileSystem.persisted("modal-optimization")
 JOURNAL_PATH = "/root/cache/journal.log"
@@ -47,7 +68,7 @@ METRICS = {
 }
 
 # Final Result
-RESULT_FILE = "optimize.json"
+RESULT_FILE = "optimize.csv"
 DATAFRAME_PICKLE_PATH = "optimize_df.pkl"
 
 stub = Stub("modal-optimization")
@@ -89,14 +110,24 @@ def objective(trial: Trial, existing_experiments: List[dict]):
         ),
         "scheduler": trial.suggest_categorical("scheduler", SCHEDULER),
         "dataset_size": trial.suggest_categorical("dataset_size", DATASET_SIZE),
-        "epochs": 8,
+        "epochs": trial.suggest_discrete_uniform(
+            "epochs", MIN_LEARNING_RATE, MAX_LEARNING_RATE
+        ),
         "warmup_steps": trial.suggest_categorical("warmup_steps", WARMUP_STEPS),
+        "learning_rate": trial.suggest_float(
+            "learning_rate", MIN_LEARNING_RATE, MAX_LEARNING_RATE
+        ),
+        "freeze_embedding_model": trial.suggest_categorical(
+            "freeze_embedding_model", FREEZE_EMBEDDING_MODEL
+        ),
     }
     # We load our model and freeze the layers ( see https://github.com/UKPLab/sentence-transformers/issues/680 )
     embedding_model = SentenceTransformer(params["model"])
-    auto_model = embedding_model._first_module().auto_model
-    for param in auto_model.parameters():
-        param.requires_grad = False
+
+    if params["freeze_embedding_model"]:
+        auto_model = embedding_model._first_module().auto_model
+        for param in auto_model.parameters():
+            param.requires_grad = False
 
     dense_model = models.Dense(
         in_features=embedding_model.get_sentence_embedding_dimension(),
@@ -123,6 +154,9 @@ def objective(trial: Trial, existing_experiments: List[dict]):
     )
 
     model.fit(
+        optimizer_class=torch.optim.AdamW(
+            model.parameters(), lr=params["learning_rate"]
+        ),
         train_objectives=[(train_dataloader, train_loss)],
         evaluator=evaluator,
         epochs=params["epochs"],
@@ -209,6 +243,7 @@ def reset_study():
 @stub.local_entrypoint()
 def main():
     import os
+    import csv
 
     reset_study.remote()
     results = []
@@ -225,9 +260,11 @@ def main():
 
         results.extend(resp)
 
-    with open(RESULT_FILE, "a+") as json_file:
-        for result in results:
-            json_file.write(json.dumps(result, indent=2) + "\n")
+    with open(RESULT_FILE, "a+") as output_file:
+        keys = results[0].keys()
+        dict_writer = csv.DictWriter(output_file, keys)
+        dict_writer.writeheader()
+        dict_writer.writerows(results)
 
     df = get_dataframe.remote()
     if os.path.exists(DATAFRAME_PICKLE_PATH):
