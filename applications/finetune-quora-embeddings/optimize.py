@@ -3,11 +3,9 @@ from optuna import Trial
 from helpers.data import format_dataset, score_prediction
 import torch.nn as nn
 from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_auc_score
-import json
-import pandas as pd
 import math
 from typing import List
-import torch.nn.ReLU
+import pandas as pd
 
 # GPU Configuration
 gpu_config = gpu.A100()
@@ -46,12 +44,12 @@ FREEZE_EMBEDDING_MODEL = [
     False,
 ]  # True: Embedding Model Dimensions will be frozen
 
-STUDY_NFS = NetworkFileSystem.persisted("modal-optimization")
+STUDY_NFS = NetworkFileSystem.new("modal-optimization")
 JOURNAL_PATH = "/root/cache/journal.log"
 STUDY_NAME = "optuna-optimization"
 
-WORKERS = 1
-NUM_TRIALS = 1
+WORKERS = 5
+NUM_TRIALS = 30
 
 # DATASET CONFIG
 DATASET_NAME = "567-labs/cleaned-quora-dataset-train-test-split"
@@ -110,9 +108,7 @@ def objective(trial: Trial, existing_experiments: List[dict]):
         ),
         "scheduler": trial.suggest_categorical("scheduler", SCHEDULER),
         "dataset_size": trial.suggest_categorical("dataset_size", DATASET_SIZE),
-        "epochs": trial.suggest_discrete_uniform(
-            "epochs", MIN_LEARNING_RATE, MAX_LEARNING_RATE
-        ),
+        "epochs": trial.suggest_int("epochs", MIN_EPOCHS, MAX_EPOCHS),
         "warmup_steps": trial.suggest_categorical("warmup_steps", WARMUP_STEPS),
         "learning_rate": trial.suggest_float(
             "learning_rate", MIN_LEARNING_RATE, MAX_LEARNING_RATE
@@ -120,6 +116,7 @@ def objective(trial: Trial, existing_experiments: List[dict]):
         "freeze_embedding_model": trial.suggest_categorical(
             "freeze_embedding_model", FREEZE_EMBEDDING_MODEL
         ),
+        "batch_size": trial.suggest_categorical("batch_size", BATCH_SIZE),
     }
     # We load our model and freeze the layers ( see https://github.com/UKPLab/sentence-transformers/issues/680 )
     embedding_model = SentenceTransformer(params["model"])
@@ -147,16 +144,18 @@ def objective(trial: Trial, existing_experiments: List[dict]):
     train_loss = losses.OnlineContrastiveLoss(model)
     train_examples = format_dataset(train_dataset)
     test_examples = format_dataset(test_dataset)
-    train_dataloader = DataLoader(train_examples, shuffle=True, batch_size=BATCH_SIZE)
+    train_dataloader = DataLoader(
+        train_examples, shuffle=True, batch_size=params["batch_size"]
+    )
 
     evaluator = evaluation.BinaryClassificationEvaluator.from_input_examples(
-        test_examples, batch_size=BATCH_SIZE
+        test_examples, batch_size=params["batch_size"]
     )
 
     model.fit(
-        optimizer_class=torch.optim.AdamW(
-            model.parameters(), lr=params["learning_rate"]
-        ),
+        optimizer_params={
+            "lr": params["learning_rate"],
+        },
         train_objectives=[(train_dataloader, train_loss)],
         evaluator=evaluator,
         epochs=params["epochs"],
@@ -193,7 +192,6 @@ def objective(trial: Trial, existing_experiments: List[dict]):
 )
 def optimize_hyperparameters(n_trials: int):
     import optuna
-    import os
 
     storage = optuna.storages.JournalStorage(
         optuna.storages.JournalFileStorage(JOURNAL_PATH)
@@ -228,24 +226,11 @@ def get_dataframe():
     return study.trials_dataframe()
 
 
-@stub.function(
-    image=image,
-    network_file_systems={"/root/cache": STUDY_NFS},
-)
-def reset_study():
-    import os
-
-    if os.path.exists(JOURNAL_PATH):
-        print(f"Deleting {JOURNAL_PATH}")
-        os.remove(JOURNAL_PATH)
-
-
 @stub.local_entrypoint()
 def main():
     import os
     import csv
 
-    reset_study.remote()
     results = []
     trials_per_worker = math.ceil(NUM_TRIALS / WORKERS)
 
@@ -260,10 +245,18 @@ def main():
 
         results.extend(resp)
 
+    # Check if the file exists
+    if not os.path.isfile(RESULT_FILE):
+        # Create the file if it doesn't exist
+        with open(RESULT_FILE, "w") as output_file:
+            keys = results[0].keys()
+            dict_writer = csv.DictWriter(output_file, keys)
+            dict_writer.writeheader()
+
+    # Append new results to the file
     with open(RESULT_FILE, "a+") as output_file:
         keys = results[0].keys()
         dict_writer = csv.DictWriter(output_file, keys)
-        dict_writer.writeheader()
         dict_writer.writerows(results)
 
     df = get_dataframe.remote()
