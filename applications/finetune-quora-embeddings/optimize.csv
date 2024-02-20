@@ -1,0 +1,2 @@
+accuracy,precision,recall,AUC,model,dense_out_features,activation_function,scheduler,dataset_size,epochs,warmup_steps,learning_rate,freeze_embedding_model,batch_size
+0.7678951495463201,0.0,0.0,0.5,intfloat/e5-small-v2,2048,Tanh,warmupcosinewithhardrestarts,1000,1,500,0.00020871672957128464,True,64
