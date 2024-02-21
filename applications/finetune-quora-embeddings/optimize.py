@@ -1,3 +1,4 @@
+import json
 from modal import Stub, Image, gpu, Volume, NetworkFileSystem
 from helpers.data import format_dataset, score_prediction
 from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_auc_score
@@ -134,9 +135,7 @@ def objective(trial, existing_experiments: List[dict]):
     )
 
     model = SentenceTransformer(modules=[embedding_model, dense_model])
-    print(
-        f"Initialized Sentence Transformer model and running job with params of {params}"
-    )
+    print(f"Training {params['model_name']} with {json.dumps(params, indent=2)} params")
     # Load in the dataset
     dataset = load_from_disk(f"{DATASET_DIR}/{DATASET_NAME}")
     train_dataset = dataset["train"].select(range(params["dataset_size"]))
