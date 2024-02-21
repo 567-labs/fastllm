@@ -26,7 +26,7 @@ SCHEDULER = [
 ]
 DATASET_SIZE = [1000, 2000, 4000, 8000, 16000, 32000, 64000, 128000]
 WARMUP_STEPS = [500, 1000, 1500, 2000]
-BATCH_SIZE = [32, 64]
+BATCH_SIZE = [32, 96]
 MODEL_SAVE_PATH = "/output"
 OPTIMIZATION_METRIC_FUNC = roc_auc_score
 MIN_LEARNING_RATE = 1e-5
@@ -34,8 +34,8 @@ MAX_LEARNING_RATE = 1e-3
 MAX_EPOCHS = 10
 FREEZE_EMBEDDING_MODEL = [
     True,
-    False,
-]  # True: Embedding Model Dimensions will be frozen
+    # False,
+]
 
 STUDY_NFS = NetworkFileSystem.new("modal-optimization")
 JOURNAL_PATH = "/root/cache/journal.log"
