@@ -1,9 +1,6 @@
 from modal import Stub, Image, gpu, Volume, NetworkFileSystem
-from optuna import Trial
 from helpers.data import format_dataset, score_prediction
-import torch.nn as nn
 from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_auc_score
-import math
 from typing import List
 import pandas as pd
 
@@ -18,11 +15,11 @@ MODELS = [
     "intfloat/e5-small-v2",
     "sentence-transformers/all-MiniLM-L12-v2",
 ]
-DENSE_LAYER_DIMS = [256, 512, 1024, 2048]
+DENSE_LAYER_DIMS = [128, 2048]
 ACTIVATION_FUNCTIONS = [
-    "Tanh",
-    "ReLU",
-]  # This is a torch func, we use getattr to read it
+    "tanh",
+    "sigmoid",
+]
 SCHEDULER = [
     "constantlr",
     "warmupconstant",
@@ -32,13 +29,12 @@ SCHEDULER = [
 ]
 DATASET_SIZE = [1000, 2000, 4000, 8000, 16000, 32000, 64000, 128000]
 WARMUP_STEPS = [500, 1000, 1500, 2000]
-BATCH_SIZE = [32, 64, 96]
+BATCH_SIZE = [32, 96]
 MODEL_SAVE_PATH = "/output"
 OPTIMIZATION_METRIC_FUNC = roc_auc_score
 MIN_LEARNING_RATE = 1e-5
 MAX_LEARNING_RATE = 1e-3
-MIN_EPOCHS = 6
-MAX_EPOCHS = 15
+MAX_EPOCHS = 10
 FREEZE_EMBEDDING_MODEL = [
     True,
     False,
@@ -49,7 +45,7 @@ JOURNAL_PATH = "/root/cache/journal.log"
 STUDY_NAME = "optuna-optimization"
 
 WORKERS = 5
-NUM_TRIALS = 30
+NUM_TRIALS = 1
 
 # DATASET CONFIG
 DATASET_NAME = "567-labs/cleaned-quora-dataset-train-test-split"
@@ -66,8 +62,7 @@ METRICS = {
 }
 
 # Final Result
-RESULT_FILE = "optimize.csv"
-DATAFRAME_PICKLE_PATH = "optimize_df.pkl"
+RESULT_FILE = "/paramsearchoptimize.csv"
 
 stub = Stub("modal-optimization")
 
@@ -86,29 +81,39 @@ image = (
 )
 
 
-def objective(trial: Trial, existing_experiments: List[dict]):
+@stub.function(
+    image=image,
+    gpu=gpu_config,
+    network_file_systems={"/root/cache": STUDY_NFS},
+    volumes={DATASET_DIR: DATASET_VOLUME},
+)
+def objective(trial, existing_experiments: List[dict]):
     from sentence_transformers import SentenceTransformer, losses, evaluation, models
     from torch.utils.data import DataLoader
     from datasets import load_from_disk
+    import torch.nn as nn
     import shutil
     import os
 
-    # delete the previously saved model if it exists
+    # Delete the directory if it exists
     if os.path.exists(MODEL_SAVE_PATH):
-        # Delete the directory if it exists
         shutil.rmtree(MODEL_SAVE_PATH)
 
+    activations = {
+        "tanh": nn.Tanh(),
+        "sigmoid": nn.Sigmoid(),
+    }
+
     params = {
-        "model": trial.suggest_categorical("model", MODELS),
-        "dense_out_features": trial.suggest_categorical(
-            "dense_out_features", DENSE_LAYER_DIMS
+        "model_name": trial.suggest_categorical("model_name", MODELS),
+        "dense_out_features": trial.suggest_int(
+            "dense_out_features", *DENSE_LAYER_DIMS
         ),
         "activation_function": trial.suggest_categorical(
             "activation_function", ACTIVATION_FUNCTIONS
         ),
         "scheduler": trial.suggest_categorical("scheduler", SCHEDULER),
         "dataset_size": trial.suggest_categorical("dataset_size", DATASET_SIZE),
-        "epochs": trial.suggest_int("epochs", MIN_EPOCHS, MAX_EPOCHS),
         "warmup_steps": trial.suggest_categorical("warmup_steps", WARMUP_STEPS),
         "learning_rate": trial.suggest_float(
             "learning_rate", MIN_LEARNING_RATE, MAX_LEARNING_RATE
@@ -116,10 +121,10 @@ def objective(trial: Trial, existing_experiments: List[dict]):
         "freeze_embedding_model": trial.suggest_categorical(
             "freeze_embedding_model", FREEZE_EMBEDDING_MODEL
         ),
-        "batch_size": trial.suggest_categorical("batch_size", BATCH_SIZE),
+        "batch_size": trial.suggest_int("batch_size", *BATCH_SIZE),
     }
     # We load our model and freeze the layers ( see https://github.com/UKPLab/sentence-transformers/issues/680 )
-    embedding_model = SentenceTransformer(params["model"])
+    embedding_model = SentenceTransformer(params["model_name"])
 
     if params["freeze_embedding_model"]:
         auto_model = embedding_model._first_module().auto_model
@@ -129,7 +134,8 @@ def objective(trial: Trial, existing_experiments: List[dict]):
     dense_model = models.Dense(
         in_features=embedding_model.get_sentence_embedding_dimension(),
         out_features=params["dense_out_features"],
-        activation_function=getattr(nn, params["activation_function"])(),
+        # just make a dict of the params and then pass it to the nn module
+        activation_function=activations[params["activation_function"]],
     )
 
     model = SentenceTransformer(modules=[embedding_model, dense_model])
@@ -153,19 +159,21 @@ def objective(trial: Trial, existing_experiments: List[dict]):
     )
 
     model.fit(
+        train_objectives=[(train_dataloader, train_loss)],
+        evaluator=evaluator,
+        warmup_steps=params["warmup_steps"],
+        scheduler=params["scheduler"],
         optimizer_params={
             "lr": params["learning_rate"],
         },
-        train_objectives=[(train_dataloader, train_loss)],
-        evaluator=evaluator,
-        epochs=params["epochs"],
-        warmup_steps=params["warmup_steps"],
         save_best_model=True,
         show_progress_bar=True,
+        epochs=MAX_EPOCHS,
         output_path=MODEL_SAVE_PATH,
-        scheduler=params["scheduler"],
     )
 
+    # Why do we reload it? We don't even load the model
+    # with the best weights?
     model = SentenceTransformer(MODEL_SAVE_PATH)
 
     predictions, test_labels = score_prediction(model, train_dataset, test_dataset)
@@ -202,7 +210,7 @@ def optimize_hyperparameters(n_trials: int):
         study_name="finetuning", storage=storage, load_if_exists=True
     )
 
-    study.optimize(lambda trial: objective(trial, results), n_trials=n_trials)
+    study.optimize(lambda trial: objective.remote(trial, results), n_trials=n_trials)
 
     return results
 
@@ -228,39 +236,24 @@ def get_dataframe():
 
 @stub.local_entrypoint()
 def main():
-    import os
-    import csv
+    import time
+
+    date = time.strftime("%Y-%m-%d")
 
     results = []
-    trials_per_worker = math.ceil(NUM_TRIALS / WORKERS)
 
     for resp in optimize_hyperparameters.map(
-        [trials_per_worker for _ in range(WORKERS)],
+        [NUM_TRIALS for _ in range(WORKERS)],
         order_outputs=False,
         return_exceptions=True,
     ):
         if isinstance(resp, Exception):
             print(f"Encountered Exception of {resp}")
             continue
-
         results.extend(resp)
 
-    # Check if the file exists
-    if not os.path.isfile(RESULT_FILE):
-        # Create the file if it doesn't exist
-        with open(RESULT_FILE, "w") as output_file:
-            keys = results[0].keys()
-            dict_writer = csv.DictWriter(output_file, keys)
-            dict_writer.writeheader()
-
-    # Append new results to the file
-    with open(RESULT_FILE, "a+") as output_file:
-        keys = results[0].keys()
-        dict_writer = csv.DictWriter(output_file, keys)
-        dict_writer.writerows(results)
+    df = pd.DataFrame(results)
+    df.to_csv(f"./paramsearch/{date}_optuna_trial_results.csv", index=False)
 
     df = get_dataframe.remote()
-    if os.path.exists(DATAFRAME_PICKLE_PATH):
-        prev_df = pd.read_pickle(DATAFRAME_PICKLE_PATH)
-        df = pd.concat([prev_df, df])
-    df.to_pickle(DATAFRAME_PICKLE_PATH)
+    df.to_csv(f"./paramsearch/{date}_optuna_journal_results.csv", index=False)
