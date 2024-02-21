@@ -31,7 +31,7 @@ MODEL_SAVE_PATH = "/output"
 OPTIMIZATION_METRIC_FUNC = roc_auc_score
 MIN_LEARNING_RATE = 1e-5
 MAX_LEARNING_RATE = 1e-3
-MAX_EPOCHS = 10
+MAX_EPOCHS = 8
 FREEZE_EMBEDDING_MODEL = [
     True,
     # False,
@@ -58,9 +58,6 @@ METRICS = {
     "AUC": roc_auc_score,
 }
 
-# Final Result
-RESULT_FILE = "/paramsearchoptimize.csv"
-
 stub = Stub("modal-optimization")
 
 
@@ -83,6 +80,7 @@ image = (
     gpu=gpu_config,
     network_file_systems={"/root/cache": STUDY_NFS},
     volumes={DATASET_DIR: DATASET_VOLUME},
+    timeout=86400,
 )
 def objective(trial, existing_experiments: List[dict]):
     from sentence_transformers import SentenceTransformer, losses, evaluation, models
