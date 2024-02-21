@@ -10,10 +10,7 @@ gpu_config = gpu.A100()
 # Finetuning Configuration ( Arrays are configurable parameters )
 MODELS = [
     "BAAI/bge-base-en-v1.5",
-    "WhereIsAI/UAE-Large-V1",
-    "thenlper/gte-small",
-    "intfloat/e5-small-v2",
-    "sentence-transformers/all-MiniLM-L12-v2",
+    "BAAI/bge-large-en-v1.5",
 ]
 DENSE_LAYER_DIMS = [128, 2048]
 ACTIVATION_FUNCTIONS = [
