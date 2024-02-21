@@ -32,7 +32,7 @@ MODEL_SAVE_PATH = "/output"
 OPTIMIZATION_METRIC_FUNC = accuracy_score
 MIN_LEARNING_RATE = 1e-5
 MAX_LEARNING_RATE = 1e-3
-MAX_EPOCHS = 8
+MAX_EPOCHS = 5
 FREEZE_EMBEDDING_MODEL = [
     # True,
     False,
@@ -43,7 +43,7 @@ JOURNAL_PATH = "/root/cache/journal.log"
 STUDY_NAME = "optuna-optimization"
 
 WORKERS = 5
-NUM_TRIALS = 1
+NUM_TRIALS = 10
 
 # DATASET CONFIG
 DATASET_NAME = "567-labs/cleaned-quora-dataset-train-test-split"
