@@ -1,0 +1,6 @@
+number,value,datetime_start,datetime_complete,duration,params_activation_function,params_batch_size,params_dataset_size,params_dense_out_features,params_freeze_embedding_model,params_learning_rate,params_model_name,params_scheduler,params_warmup_steps,state
+0,0.5,2024-02-21 03:30:43.941876,2024-02-21 04:39:24.926036,0 days 01:08:40.984160,sigmoid,78,128000,329,False,0.00026322404576869076,BAAI/bge-base-en-v1.5,warmuplinear,500,COMPLETE
+1,0.5,2024-02-21 03:30:45.051680,2024-02-21 04:08:03.270576,0 days 00:37:18.218896,sigmoid,67,64000,820,False,0.0009443764396179086,BAAI/bge-base-en-v1.5,warmupconstant,1000,COMPLETE
+2,0.5,2024-02-21 03:30:45.246131,2024-02-21 03:54:03.944017,0 days 00:23:18.697886,sigmoid,49,32000,603,False,0.000414887403812838,BAAI/bge-base-en-v1.5,warmupcosinewithhardrestarts,1000,COMPLETE
+3,0.8696612468986648,2024-02-21 03:31:07.170370,2024-02-21 03:38:41.327255,0 days 00:07:34.156885,tanh,63,4000,931,False,0.0003566499410743269,BAAI/bge-base-en-v1.5,warmupconstant,2000,COMPLETE
+4,0.8669556716766782,2024-02-21 03:31:11.891006,2024-02-21 03:39:08.013016,0 days 00:07:56.122010,tanh,68,4000,623,False,0.0006752017196226554,BAAI/bge-base-en-v1.5,warmupcosinewithhardrestarts,1000,COMPLETE
