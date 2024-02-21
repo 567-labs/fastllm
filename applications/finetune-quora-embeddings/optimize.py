@@ -11,9 +11,9 @@ gpu_config = gpu.A100()
 # Finetuning Configuration ( Arrays are configurable parameters )
 MODELS = [
     "BAAI/bge-base-en-v1.5",
-    "BAAI/bge-large-en-v1.5",
+    # "BAAI/bge-large-en-v1.5",
 ]
-DENSE_LAYER_DIMS = [128, 1000]
+DENSE_LAYER_DIMS = [128, 512]
 ACTIVATION_FUNCTIONS = [
     "tanh",
     "sigmoid",
@@ -25,7 +25,7 @@ SCHEDULER = [
     "warmupcosine",
     "warmupcosinewithhardrestarts",
 ]
-DATASET_SIZE = [1000, 2000, 4000, 8000, 16000, 32000, 64000, 128000]
+DATASET_SIZE = [32000, 64000, 128000]
 WARMUP_STEPS = [500, 1000, 1500, 2000]
 BATCH_SIZE = [32, 96]
 MODEL_SAVE_PATH = "/output"
@@ -34,8 +34,8 @@ MIN_LEARNING_RATE = 1e-5
 MAX_LEARNING_RATE = 1e-3
 MAX_EPOCHS = 8
 FREEZE_EMBEDDING_MODEL = [
-    True,
-    # False,
+    # True,
+    False,
 ]
 
 STUDY_NFS = NetworkFileSystem.new("modal-optimization")
@@ -135,6 +135,8 @@ def objective(trial, existing_experiments: List[dict]):
     )
 
     model = SentenceTransformer(modules=[embedding_model, dense_model])
+    model.to("cuda")
+
     print(f"Training {params['model_name']} with {json.dumps(params, indent=2)} params")
     # Load in the dataset
     dataset = load_from_disk(f"{DATASET_DIR}/{DATASET_NAME}")
