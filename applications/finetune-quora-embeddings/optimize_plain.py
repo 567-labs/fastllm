@@ -114,6 +114,8 @@ def random_search_config(model_name, dataset_size):
     gpu=gpu_config,
     network_file_systems={"/root/cache": STUDY_NFS},
     volumes={DATASET_DIR: DATASET_VOLUME},
+    concurrency_limit=25,
+    allow_concurrent_inputs=True,
     timeout=86400,
 )
 def objective(
@@ -214,6 +216,8 @@ def objective(
     eval_results["freeze_embedding_model"] = freeze_embedding_model
     eval_results["batch_size"] = batch_size
     eval_results["num_epochs"] = num_epochs
+
+    print(json.dumps(eval_results, indent=2))
     return eval_results
 
 
