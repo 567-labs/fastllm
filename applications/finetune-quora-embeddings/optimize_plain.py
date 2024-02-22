@@ -233,11 +233,14 @@ def main():
 
     results = []
 
-    for experiment_result in objective.map(generate_configs(n_trials=5)):
+    for experiment_result in objective.map(
+        generate_configs(n_trials=5), order_outputs=True, return_exceptions=True
+    ):
         if isinstance(experiment_result, Exception):
             print(f"Encountered Exception of {experiment_result}")
             continue
         results.append(experiment_result)
-
-    df = pd.DataFrame(results)
-    df.to_csv(f"./paramsearch/{date}_plain_trial_results.csv", index=False)
+        # dumb but... save the results to a file every time a new result is available
+        # This is to ensure that the results are not lost if the job is interrupted
+        df = pd.DataFrame(results)
+        df.to_csv(f"./paramsearch/{date}_plain_trial_results.csv", index=False)
