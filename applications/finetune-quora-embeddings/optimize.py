@@ -188,13 +188,14 @@ def optimize_hyperparameters(model_name: str, dataset_size: int, n_trials: int):
     import optuna
 
     # Set it so that we can resume a study in the event that something fails
-    # storage = optuna.storages.JournalStorage(
-    #    optuna.storages.JournalFileStorage(JOURNAL_PATH)
-    # )
+    storage = optuna.storages.JournalStorage(
+        optuna.storages.JournalFileStorage(JOURNAL_PATH)
+    )
     study = optuna.create_study(
         study_name="finetuning",
         direction="maximize",
-        # storage=storage,load_if_exists=True
+        storage=storage,
+        load_if_exists=True,
     )
 
     study.optimize(
