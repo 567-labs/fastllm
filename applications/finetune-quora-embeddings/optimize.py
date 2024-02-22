@@ -27,7 +27,9 @@ SCHEDULER = [
     "warmupcosine",
     "warmupcosinewithhardrestarts",
 ]
-DATASET_SIZE = [32000, 64000, 128000]
+DATASET_SIZE = [
+    2000,
+]  # 4000, 8000, 16000, 32000, 64000, 128000]
 WARMUP_STEPS = [500, 1000, 1500, 2000]
 BATCH_SIZE = [18, 32, 64, 96]
 MODEL_SAVE_PATH = "/output"
@@ -77,9 +79,7 @@ image = (
 )
 
 
-def objective(
-    model_name: str, dataset_size: int, trial, existing_experiments: List[dict]
-):
+def objective(model_name: str, dataset_size: int, trial):
     from sentence_transformers import SentenceTransformer, losses, evaluation, models
     from torch.utils.data import DataLoader
     from datasets import load_from_disk
@@ -110,6 +110,7 @@ def objective(
         "freeze_embedding_model", FREEZE_EMBEDDING_MODEL
     )
     batch_size = trial.suggest_categorical("batch_size", BATCH_SIZE)
+    num_epochs = MAX_EPOCHS
 
     # Freeze the embedding model
     if freeze_embedding_model:
@@ -140,16 +141,17 @@ def objective(
         format_dataset(test_dataset),
     )
 
-    # Create the dataloaders
-    train_dataloader = DataLoader(
-        train_examples, shuffle=True, batch_size=batch_size, num_workers=4
-    )
+    print("Creating the dataloaders")
+    train_dataloader = DataLoader(train_examples, shuffle=True, batch_size=batch_size)
 
+    print("Creating the evaluator & loss function")
     evaluator = evaluation.BinaryClassificationEvaluator.from_input_examples(
         test_examples, batch_size=batch_size
     )
 
     train_loss = losses.OnlineContrastiveLoss(model)
+
+    print("Training the model")
     model.fit(
         train_objectives=[(train_dataloader, train_loss)],
         evaluator=evaluator,
@@ -158,15 +160,18 @@ def objective(
         optimizer_params={"lr": lr},
         save_best_model=True,
         show_progress_bar=True,
-        epochs=MAX_EPOCHS,
+        epochs=num_epochs,
         output_path=MODEL_SAVE_PATH,
     )
 
     # Reload the model with the best weights
     model = SentenceTransformer(MODEL_SAVE_PATH)
 
+    # Score the model
+    print("Scoring the model")
     predictions, test_labels = score_prediction(model, train_dataset, test_dataset)
 
+    # Evaluate the model
     eval_results = {
         metric: round(function(test_labels, predictions), 4)
         for metric, function in METRICS.items()
@@ -187,17 +192,16 @@ def objective(
 def optimize_hyperparameters(model_name: str, dataset_size: int, n_trials: int):
     import optuna
 
-    storage = optuna.storages.JournalStorage(
-        optuna.storages.JournalFileStorage(JOURNAL_PATH)
-    )
-    results = []
     # Set it so that we can resume a study in the event that something fails
+    # storage = optuna.storages.JournalStorage(
+    #    optuna.storages.JournalFileStorage(JOURNAL_PATH)
+    # )
     study = optuna.create_study(
-        study_name="finetuning", storage=storage, load_if_exists=True
+        study_name="finetuning",  # storage=storage,load_if_exists=True
     )
 
     study.optimize(
-        lambda trial: objective(model_name, dataset_size, trial, results),
+        lambda trial: objective(model_name, dataset_size, trial),
         n_trials=n_trials,
     )
 
