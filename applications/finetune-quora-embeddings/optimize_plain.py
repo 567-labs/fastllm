@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from itertools import product
 import json
 from modal import Stub, Image, gpu, Volume, NetworkFileSystem
 from helpers.data import format_dataset, score_prediction
@@ -27,11 +28,7 @@ BATCH_SIZE = [32, 64]
 MODEL_SAVE_PATH = "/output"
 MIN_LEARNING_RATE = 1e-5
 MAX_LEARNING_RATE = 1e-3
-MAX_EPOCHS = 3
-FREEZE_EMBEDDING_MODEL = [
-    True,
-    False,
-]
+MAX_EPOCHS = 5
 
 STUDY_NFS = NetworkFileSystem.new("modal-optimization")
 JOURNAL_PATH = "/root/cache/journal.log"
@@ -82,7 +79,7 @@ class ModelConfig:
     num_epochs: int
 
 
-def random_search_config(model_name, dataset_size):
+def random_search_config(model_name, dataset_size, freeze_embedding_model):
     """
     Randomly sample from the configuration space
     """
@@ -91,7 +88,6 @@ def random_search_config(model_name, dataset_size):
     scheduler = random.choice(SCHEDULER)
     warmup_steps = random.choice(WARMUP_STEPS)
     batch_size = random.choice(BATCH_SIZE)
-    freeze_embedding_model = random.choice(FREEZE_EMBEDDING_MODEL)
     learning_rate = random.uniform(MIN_LEARNING_RATE, MAX_LEARNING_RATE)
     dense_out_features = random.randint(100, 1000)
     num_epochs = MAX_EPOCHS  # This could also be made configurable if desired
@@ -99,11 +95,11 @@ def random_search_config(model_name, dataset_size):
     return ModelConfig(
         model_name=model_name,
         dataset_size=dataset_size,
+        freeze_embedding_model=freeze_embedding_model,
         dense_out_features=dense_out_features,
         learning_rate=learning_rate,
         scheduler=scheduler,
         warmup_steps=warmup_steps,
-        freeze_embedding_model=freeze_embedding_model,
         batch_size=batch_size,
         num_epochs=num_epochs,
     )
@@ -222,10 +218,11 @@ def objective(
 
 
 def generate_configs(n_trials):
-    for model in MODELS:
-        for dataset_size in DATASET_SIZE:
-            for _ in range(n_trials):
-                yield random_search_config(model, dataset_size)
+    for model, sample_size, freeze_embedding_model in product(
+        MODELS, DATASET_SIZE, [True, False]
+    ):
+        for _ in range(n_trials):
+            yield random_search_config(model, sample_size, freeze_embedding_model)
 
 
 @stub.local_entrypoint()
@@ -236,7 +233,7 @@ def main():
 
     results = []
 
-    for experiment_result in objective.map(generate_configs(n_trials=3)):
+    for experiment_result in objective.map(generate_configs(n_trials=5)):
         if isinstance(experiment_result, Exception):
             print(f"Encountered Exception of {experiment_result}")
             continue
