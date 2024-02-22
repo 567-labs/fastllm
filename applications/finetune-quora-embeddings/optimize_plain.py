@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import json
 from modal import Stub, Image, gpu, Volume, NetworkFileSystem
 from helpers.data import format_dataset, score_prediction
@@ -71,13 +72,72 @@ image = (
 )
 
 
-def objective(model_name: str, dataset_size: int, trial):
+@dataclass
+class ModelConfig:
+    model_name: str
+    dataset_size: int
+    dense_out_features: int
+    learning_rate: float
+    scheduler: str
+    warmup_steps: int
+    freeze_embedding_model: bool
+    batch_size: int
+    num_epochs: int
+
+
+def random_search_config(model_name, dataset_size):
+    """
+    Randomly sample from the configuration space
+    """
+    import random
+
+    scheduler = random.choice(SCHEDULER)
+    warmup_steps = random.choice(WARMUP_STEPS)
+    batch_size = random.choice(BATCH_SIZE)
+    freeze_embedding_model = random.choice(FREEZE_EMBEDDING_MODEL)
+    learning_rate = random.uniform(MIN_LEARNING_RATE, MAX_LEARNING_RATE)
+    dense_out_features = random.randint(100, 1000)
+    num_epochs = MAX_EPOCHS  # This could also be made configurable if desired
+
+    return ModelConfig(
+        model_name=model_name,
+        dataset_size=dataset_size,
+        dense_out_features=dense_out_features,
+        learning_rate=learning_rate,
+        scheduler=scheduler,
+        warmup_steps=warmup_steps,
+        freeze_embedding_model=freeze_embedding_model,
+        batch_size=batch_size,
+        num_epochs=num_epochs,
+    )
+
+
+@stub.function(
+    image=image,
+    gpu=gpu_config,
+    network_file_systems={"/root/cache": STUDY_NFS},
+    volumes={DATASET_DIR: DATASET_VOLUME},
+    timeout=86400,
+)
+def objective(
+    config: ModelConfig,
+):
     from sentence_transformers import SentenceTransformer, losses, evaluation, models
     from torch.utils.data import DataLoader
     from datasets import load_from_disk
     import torch.nn as nn
     import shutil
     import os
+
+    model_name = config.model_name
+    dataset_size = config.dataset_size
+    dense_out_features = config.dense_out_features
+    learning_rate = config.learning_rate
+    scheduler = config.scheduler
+    warmup_steps = config.warmup_steps
+    freeze_embedding_model = config.freeze_embedding_model
+    batch_size = config.batch_size
+    num_epochs = config.num_epochs
 
     # Load the model
     embedding_model = SentenceTransformer(model_name)
@@ -86,38 +146,21 @@ def objective(model_name: str, dataset_size: int, trial):
     if os.path.exists(MODEL_SAVE_PATH):
         shutil.rmtree(MODEL_SAVE_PATH)
 
-    # Suggest parameters
-
-    # For dimensionality of the embedding model
+    # Model configuration
     dim_emb = embedding_model.get_sentence_embedding_dimension()
-    dense_out_features = trial.suggest_int(
-        "dense_out_features", int(dim_emb // 2), int(dim_emb * 1.2)
-    )
-
-    lr = trial.suggest_float("learning_rate", MIN_LEARNING_RATE, MAX_LEARNING_RATE)
-    scheduler = trial.suggest_categorical("scheduler", SCHEDULER)
-    warmup_steps = trial.suggest_categorical("warmup_steps", WARMUP_STEPS)
-    freeze_embedding_model = trial.suggest_categorical(
-        "freeze_embedding_model", FREEZE_EMBEDDING_MODEL
-    )
-    batch_size = trial.suggest_categorical("batch_size", BATCH_SIZE)
-    num_epochs = MAX_EPOCHS
 
     # Freeze the embedding model
     if freeze_embedding_model:
-        print("Freezing the embedding model")
-        auto_model = embedding_model._first_module().auto_model
-        for param in auto_model.parameters():
+        for param in embedding_model._first_module().auto_model.parameters():
             param.requires_grad = False
 
     # Define the model architecture with additional dense layer
     dense_model = models.Dense(
-        in_features=embedding_model.get_sentence_embedding_dimension(),
+        in_features=dim_emb,
         out_features=dense_out_features,
         activation_function=nn.Tanh(),
     )
-
-    pooling_model = models.Pooling(embedding_model.get_sentence_embedding_dimension())
+    pooling_model = models.Pooling(dim_emb)
 
     # Initialize the model
     model = SentenceTransformer(
@@ -125,7 +168,6 @@ def objective(model_name: str, dataset_size: int, trial):
     )
 
     # Load the dataset
-    print(f"Loading dataset with {dataset_size} samples")
     dataset = load_from_disk(f"{DATASET_DIR}/{DATASET_NAME}")
     train_dataset = dataset["train"].select(range(dataset_size))
     test_dataset = dataset["test"].select(range(TEST_SET_SIZE))
@@ -136,45 +178,45 @@ def objective(model_name: str, dataset_size: int, trial):
         format_dataset(test_dataset),
     )
 
-    print("Creating the dataloaders")
+    # Create dataloaders and evaluator
     train_dataloader = DataLoader(train_examples, shuffle=True, batch_size=batch_size)
-
-    print("Creating the evaluator & loss function")
     evaluator = evaluation.BinaryClassificationEvaluator.from_input_examples(
         test_examples, batch_size=batch_size
     )
-
     train_loss = losses.OnlineContrastiveLoss(model)
 
-    print("Training the model")
-    print(json.dumps(trial.params, indent=2))
+    # Train the model
     model.fit(
         train_objectives=[(train_dataloader, train_loss)],
         evaluator=evaluator,
         warmup_steps=warmup_steps,
         scheduler=scheduler,
-        optimizer_params={"lr": lr},
+        optimizer_params={"lr": learning_rate},
         save_best_model=True,
         show_progress_bar=True,
         epochs=num_epochs,
         output_path=MODEL_SAVE_PATH,
     )
 
-    # Reload the model with the best weights
+    # Reload the best model
     model = SentenceTransformer(MODEL_SAVE_PATH)
 
-    # Score the model
-    print("Scoring the model")
+    # Score and evaluate the model
     predictions, test_labels = score_prediction(model, train_dataset, test_dataset)
-
-    # Evaluate the model
     eval_results = {
-        metric: round(function(test_labels, predictions), 4)
+        f"metric_{metric}": round(function(test_labels, predictions), 4)
         for metric, function in METRICS.items()
     }
-    print(json.dumps(eval_results, indent=2))
-
-    return accuracy_score(test_labels, predictions)
+    eval_results["model_name"] = model_name
+    eval_results["dataset_size"] = dataset_size
+    eval_results["dense_out_features"] = dense_out_features
+    eval_results["learning_rate"] = learning_rate
+    eval_results["scheduler"] = scheduler
+    eval_results["warmup_steps"] = warmup_steps
+    eval_results["freeze_embedding_model"] = freeze_embedding_model
+    eval_results["batch_size"] = batch_size
+    eval_results["num_epochs"] = num_epochs
+    return eval_results
 
 
 @stub.function(
@@ -184,51 +226,19 @@ def objective(model_name: str, dataset_size: int, trial):
     volumes={DATASET_DIR: DATASET_VOLUME},
     timeout=86400,
 )
-def optimize_hyperparameters(model_name: str, dataset_size: int, n_trials: int):
-    import optuna
+def search_model(model_name, dataset_size):
+    configs = [
+        random_search_config(model_name=model_name, dataset_size=dataset_size)
+        for _ in range(NUM_TRIALS)
+    ]
+    results = []
 
-    # Set it so that we can resume a study in the event that something fails
-    storage = optuna.storages.JournalStorage(
-        optuna.storages.JournalFileStorage(JOURNAL_PATH)
-    )
-    study = optuna.create_study(
-        study_name="finetuning",
-        direction="maximize",
-        storage=storage,
-        load_if_exists=True,
-    )
-
-    study.optimize(
-        lambda trial: objective(model_name, dataset_size, trial),
-        n_trials=n_trials,
-        n_jobs=NUM_PARALLEL_JOBS,
-    )
-
-    best_params = study.best_params
-    best_params["model_name"] = model_name
-    best_params["dataset_size"] = dataset_size
-    print(f"Best parameters for {model_name} with {dataset_size} samples")
-    print(json.dumps(best_params, indent=2))
-    return best_params
-
-
-@stub.function(
-    image=image,
-    network_file_systems={"/root/cache": STUDY_NFS},
-)
-def get_dataframe():
-    import optuna
-
-    storage = optuna.storages.JournalStorage(
-        optuna.storages.JournalFileStorage(JOURNAL_PATH)
-    )
-
-    # Set it so that we can resume a study in the event that something fails
-    study = optuna.create_study(
-        study_name="finetuning", storage=storage, load_if_exists=True
-    )
-
-    return study.trials_dataframe()
+    for result in objective.map(configs, order_outputs=False, return_exceptions=True):
+        if isinstance(result, Exception):
+            print(f"Encountered Exception of {result}")
+            continue
+        results.append(result)
+    return results
 
 
 @stub.local_entrypoint()
@@ -239,9 +249,12 @@ def main():
 
     results = []
 
-    for response in optimize_hyperparameters.starmap(
+    for response in search_model.starmap(
         [
-            (model, dataset_size, NUM_TRIALS)
+            (
+                model,
+                dataset_size,
+            )
             for model in MODELS
             for dataset_size in DATASET_SIZE
         ],
@@ -251,11 +264,8 @@ def main():
         if isinstance(response, Exception):
             print(f"Encountered Exception of {response}")
             continue
-        best_params = response
-        results.append(best_params)
+        for result in response:
+            results.append(results)
 
     df = pd.DataFrame(results)
-    df.to_csv(f"./paramsearch/{date}_optuna_trial_results.csv", index=False)
-
-    df = get_dataframe.remote()
-    df.to_csv(f"./paramsearch/{date}_optuna_journal_results.csv", index=False)
+    df.to_csv(f"./paramsearch/{date}_plain_trial_results.csv", index=False)

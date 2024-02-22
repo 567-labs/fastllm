@@ -1,0 +1,8 @@
+dense_out_features,learning_rate,scheduler,warmup_steps,freeze_embedding_model,batch_size,model_name,dataset_size
+662,0.0007311964420881595,warmuplinear,1000,True,64,sentence-transformers/all-mpnet-base-v2,2000
+662,0.0007311964420881595,warmuplinear,1000,True,64,sentence-transformers/all-mpnet-base-v2,4000
+539,0.0007212601217397026,warmupcosinewithhardrestarts,500,True,64,sentence-transformers/all-mpnet-base-v2,8000
+578,1.5961097643594845e-05,warmupcosinewithhardrestarts,1500,False,64,BAAI/bge-base-en-v1.5,4000
+578,1.5961097643594845e-05,warmupcosinewithhardrestarts,1500,False,64,BAAI/bge-base-en-v1.5,2000
+578,1.5961097643594845e-05,warmupcosinewithhardrestarts,1500,False,64,BAAI/bge-base-en-v1.5,8000
+578,1.5961097643594845e-05,warmupcosinewithhardrestarts,1500,False,64,sentence-transformers/all-mpnet-base-v2,16000
