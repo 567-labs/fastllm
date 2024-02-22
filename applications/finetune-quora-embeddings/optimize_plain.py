@@ -22,13 +22,14 @@ SCHEDULER = [
     "warmupcosine",
     "warmupcosinewithhardrestarts",
 ]
-DATASET_SIZE = [2000, 4000, 8000, 16000]  # , 32000, 64000, 128000]
+DATASET_SIZE = [16000, 32000, 64000, 128000]
 WARMUP_STEPS = [500, 1000, 1500]
+DENSE_OUT_FEATURES = [64, 128, 256, 512, 1024]
 BATCH_SIZE = [32, 64]
 MODEL_SAVE_PATH = "/output"
 MIN_LEARNING_RATE = 1e-5
 MAX_LEARNING_RATE = 1e-3
-MAX_EPOCHS = 5
+MAX_EPOCHS = 8
 
 STUDY_NFS = NetworkFileSystem.new("modal-optimization")
 JOURNAL_PATH = "/root/cache/journal.log"
@@ -89,7 +90,7 @@ def random_search_config(model_name, dataset_size, freeze_embedding_model):
     warmup_steps = random.choice(WARMUP_STEPS)
     batch_size = random.choice(BATCH_SIZE)
     learning_rate = random.uniform(MIN_LEARNING_RATE, MAX_LEARNING_RATE)
-    dense_out_features = random.randint(100, 1000)
+    dense_out_features = random.choice(DENSE_OUT_FEATURES)
     num_epochs = MAX_EPOCHS  # This could also be made configurable if desired
 
     return ModelConfig(
@@ -242,5 +243,9 @@ def main():
         results.append(experiment_result)
         # dumb but... save the results to a file every time a new result is available
         # This is to ensure that the results are not lost if the job is interrupted
-        df = pd.DataFrame(results)
+        df = pd.DataFrame(results).sort_values("metric_accuracy", ascending=False)
         df.to_csv(f"./paramsearch/{date}_plain_trial_results.csv", index=False)
+
+        # Save the results to a markdown file, this is useful for viewing the results in a human readable format
+        with open(f"./paramsearch/{date}_plain_trial_results.md", "w") as f:
+            f.write(df.to_markdown())
