@@ -1,10 +1,7 @@
-from cgi import test
 import json
 from modal import Stub, Image, gpu, Volume, NetworkFileSystem
-from regex import F
 from helpers.data import format_dataset, score_prediction
 from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_auc_score
-from typing import List
 import pandas as pd
 
 # GPU Configuration
@@ -12,13 +9,9 @@ gpu_config = gpu.A100()
 
 # Finetuning Configuration ( Arrays are configurable parameters )
 MODELS = [
+    "sentence-transformers/all-mpnet-base-v2",
     "BAAI/bge-base-en-v1.5",
     # "BAAI/bge-large-en-v1.5",
-]
-DENSE_LAYER_DIMS = [128, 512]
-ACTIVATION_FUNCTIONS = [
-    "tanh",
-    "sigmoid",
 ]
 SCHEDULER = [
     "constantlr",
@@ -27,15 +20,13 @@ SCHEDULER = [
     "warmupcosine",
     "warmupcosinewithhardrestarts",
 ]
-DATASET_SIZE = [
-    2000,
-]  # 4000, 8000, 16000, 32000, 64000, 128000]
-WARMUP_STEPS = [500, 1000, 1500, 2000]
-BATCH_SIZE = [18, 32, 64, 96]
+DATASET_SIZE = [2000, 4000, 8000]  # + [ 16000, 32000, 64000, 128000]
+WARMUP_STEPS = [500, 1000, 1500]
+BATCH_SIZE = [32, 64]
 MODEL_SAVE_PATH = "/output"
 MIN_LEARNING_RATE = 1e-5
 MAX_LEARNING_RATE = 1e-3
-MAX_EPOCHS = 5
+MAX_EPOCHS = 8
 FREEZE_EMBEDDING_MODEL = [
     # True,
     False,
@@ -45,7 +36,7 @@ STUDY_NFS = NetworkFileSystem.new("modal-optimization")
 JOURNAL_PATH = "/root/cache/journal.log"
 STUDY_NAME = "optuna-optimization"
 
-WORKERS = 5
+NUM_PARALLEL_JOBS = 3
 NUM_TRIALS = 10
 
 # DATASET CONFIG
@@ -53,6 +44,7 @@ DATASET_NAME = "567-labs/cleaned-quora-dataset-train-test-split"
 DATASET_DIR = "/data"
 DATASET_VOLUME = Volume.persisted("datasets")
 CACHE_DIRECTORY = f"{DATASET_DIR}/cached-embeddings"
+TEST_SET_SIZE = 10000
 
 # Eval Configuration
 METRICS = {
@@ -95,8 +87,14 @@ def objective(model_name: str, dataset_size: int, trial):
         shutil.rmtree(MODEL_SAVE_PATH)
 
     # Suggest parameters
+
+    # For dimensionality of the embedding model
+    dim_emb = embedding_model.get_sentence_embedding_dimension()
+    dense_out_features = trial.suggest_int(
+        "dense_out_features", int(dim_emb // 2), int(dim_emb * 1.2)
+    )
+
     lr = trial.suggest_float("learning_rate", MIN_LEARNING_RATE, MAX_LEARNING_RATE)
-    dense_out_features = trial.suggest_int("dense_out_features", *DENSE_LAYER_DIMS)
     scheduler = trial.suggest_categorical("scheduler", SCHEDULER)
     warmup_steps = trial.suggest_categorical("warmup_steps", WARMUP_STEPS)
     freeze_embedding_model = trial.suggest_categorical(
@@ -119,7 +117,7 @@ def objective(model_name: str, dataset_size: int, trial):
         activation_function=nn.Tanh(),
     )
 
-    pooling_model = models.Pooling(embedding_model.get_word_embedding_dimension())
+    pooling_model = models.Pooling(embedding_model.get_sentence_embedding_dimension())
 
     # Initialize the model
     model = SentenceTransformer(
@@ -130,7 +128,7 @@ def objective(model_name: str, dataset_size: int, trial):
     print(f"Loading dataset with {dataset_size} samples")
     dataset = load_from_disk(f"{DATASET_DIR}/{DATASET_NAME}")
     train_dataset = dataset["train"].select(range(dataset_size))
-    test_dataset = dataset["test"]
+    test_dataset = dataset["test"].select(range(TEST_SET_SIZE))
 
     # Format the dataset
     train_examples, test_examples = (
@@ -149,6 +147,7 @@ def objective(model_name: str, dataset_size: int, trial):
     train_loss = losses.OnlineContrastiveLoss(model)
 
     print("Training the model")
+    print(json.dumps(trial.params, indent=2))
     model.fit(
         train_objectives=[(train_dataloader, train_loss)],
         evaluator=evaluator,
@@ -173,10 +172,9 @@ def objective(model_name: str, dataset_size: int, trial):
         metric: round(function(test_labels, predictions), 4)
         for metric, function in METRICS.items()
     }
-    print(f"Eval results: {eval_results}")
+    print(json.dumps(eval_results, indent=2))
 
-    # Return the objective to minimize
-    return 1 - accuracy_score(test_labels, predictions)
+    return accuracy_score(test_labels, predictions)
 
 
 @stub.function(
@@ -194,17 +192,22 @@ def optimize_hyperparameters(model_name: str, dataset_size: int, n_trials: int):
     #    optuna.storages.JournalFileStorage(JOURNAL_PATH)
     # )
     study = optuna.create_study(
-        study_name="finetuning",  # storage=storage,load_if_exists=True
+        study_name="finetuning",
+        direction="maximize",
+        # storage=storage,load_if_exists=True
     )
 
     study.optimize(
         lambda trial: objective(model_name, dataset_size, trial),
         n_trials=n_trials,
+        n_jobs=NUM_PARALLEL_JOBS,
     )
 
     best_params = study.best_params
     best_params["model_name"] = model_name
     best_params["dataset_size"] = dataset_size
+    print(f"Best parameters for {model_name} with {dataset_size} samples")
+    print(json.dumps(best_params, indent=2))
     return best_params
 
 
