@@ -110,7 +110,7 @@ def random_search_config(model_name, dataset_size, freeze_embedding_model):
     gpu=gpu_config,
     network_file_systems={"/root/cache": STUDY_NFS},
     volumes={DATASET_DIR: DATASET_VOLUME},
-    concurrency_limit=25,
+    concurrency_limit=50,
     allow_concurrent_inputs=True,
     timeout=86400,
 )
