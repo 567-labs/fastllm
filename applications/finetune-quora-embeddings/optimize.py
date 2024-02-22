@@ -94,16 +94,9 @@ def objective(model_name: str, dataset_size: int, trial):
     if os.path.exists(MODEL_SAVE_PATH):
         shutil.rmtree(MODEL_SAVE_PATH)
 
-    # Define activations
-    activations = {"tanh": nn.Tanh(), "sigmoid": nn.Sigmoid()}
-
     # Suggest parameters
     lr = trial.suggest_float("learning_rate", MIN_LEARNING_RATE, MAX_LEARNING_RATE)
     dense_out_features = trial.suggest_int("dense_out_features", *DENSE_LAYER_DIMS)
-    activation_function_key = trial.suggest_categorical(
-        "activation_function", ACTIVATION_FUNCTIONS
-    )
-    activation_function = activations[activation_function_key]
     scheduler = trial.suggest_categorical("scheduler", SCHEDULER)
     warmup_steps = trial.suggest_categorical("warmup_steps", WARMUP_STEPS)
     freeze_embedding_model = trial.suggest_categorical(
@@ -123,11 +116,15 @@ def objective(model_name: str, dataset_size: int, trial):
     dense_model = models.Dense(
         in_features=embedding_model.get_sentence_embedding_dimension(),
         out_features=dense_out_features,
-        activation_function=activation_function,
+        activation_function=nn.Tanh(),
     )
 
+    pooling_model = models.Pooling(embedding_model.get_word_embedding_dimension())
+
     # Initialize the model
-    model = SentenceTransformer(modules=[embedding_model, dense_model])
+    model = SentenceTransformer(
+        modules=[embedding_model, pooling_model, dense_model], device="cuda"
+    )
 
     # Load the dataset
     print(f"Loading dataset with {dataset_size} samples")
