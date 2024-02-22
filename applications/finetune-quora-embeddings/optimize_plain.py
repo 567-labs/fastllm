@@ -6,7 +6,7 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_a
 import pandas as pd
 
 # GPU Configuration
-gpu_config = gpu.A100()
+gpu_config = gpu.A10G()
 
 # Finetuning Configuration ( Arrays are configurable parameters )
 MODELS = [
@@ -36,9 +36,6 @@ FREEZE_EMBEDDING_MODEL = [
 STUDY_NFS = NetworkFileSystem.new("modal-optimization")
 JOURNAL_PATH = "/root/cache/journal.log"
 STUDY_NAME = "optuna-optimization"
-
-NUM_PARALLEL_JOBS = 3
-NUM_TRIALS = 6
 
 # DATASET CONFIG
 DATASET_NAME = "567-labs/cleaned-quora-dataset-train-test-split"
@@ -139,6 +136,8 @@ def objective(
     batch_size = config.batch_size
     num_epochs = config.num_epochs
 
+    print(f"Training model {model_name} {config}")
+
     # Load the model
     embedding_model = SentenceTransformer(model_name)
 
@@ -193,7 +192,6 @@ def objective(
         scheduler=scheduler,
         optimizer_params={"lr": learning_rate},
         save_best_model=True,
-        show_progress_bar=True,
         epochs=num_epochs,
         output_path=MODEL_SAVE_PATH,
     )
@@ -219,26 +217,11 @@ def objective(
     return eval_results
 
 
-@stub.function(
-    image=image,
-    gpu=gpu_config,
-    network_file_systems={"/root/cache": STUDY_NFS},
-    volumes={DATASET_DIR: DATASET_VOLUME},
-    timeout=86400,
-)
-def search_model(model_name, dataset_size):
-    configs = [
-        random_search_config(model_name=model_name, dataset_size=dataset_size)
-        for _ in range(NUM_TRIALS)
-    ]
-    results = []
-
-    for result in objective.map(configs, order_outputs=False, return_exceptions=True):
-        if isinstance(result, Exception):
-            print(f"Encountered Exception of {result}")
-            continue
-        results.append(result)
-    return results
+def generate_configs(n_trials):
+    for model in MODELS:
+        for dataset_size in DATASET_SIZE:
+            for _ in range(n_trials):
+                yield random_search_config(model, dataset_size)
 
 
 @stub.local_entrypoint()
@@ -249,23 +232,11 @@ def main():
 
     results = []
 
-    for response in search_model.starmap(
-        [
-            (
-                model,
-                dataset_size,
-            )
-            for model in MODELS
-            for dataset_size in DATASET_SIZE
-        ],
-        order_outputs=False,
-        return_exceptions=True,
-    ):
-        if isinstance(response, Exception):
-            print(f"Encountered Exception of {response}")
+    for experiment_result in objective.map(generate_configs(n_trials=3)):
+        if isinstance(experiment_result, Exception):
+            print(f"Encountered Exception of {experiment_result}")
             continue
-        for result in response:
-            results.append(results)
+        results.append(experiment_result)
 
     df = pd.DataFrame(results)
     df.to_csv(f"./paramsearch/{date}_plain_trial_results.csv", index=False)
