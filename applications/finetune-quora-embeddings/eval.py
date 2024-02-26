@@ -1,18 +1,35 @@
+from distutils.log import Log
+from unittest import result
+
+from sklearn.linear_model import LogisticRegression
+from sklearn.tree import DecisionTreeClassifier
 from modal import Image, gpu, Stub, Volume, Secret
 
 from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_auc_score
+from collections import OrderedDict
 
 # Eval Configuration
-METRICS = {
+METRICS = OrderedDict(**{
+    "AUC": roc_auc_score,
     "accuracy": accuracy_score,  # This is the number of correct predictions by the model ( TP + TN )/ (# of samples)
     "precision": precision_score,  # This measures the number of positive class predicitons (TP) / (TP + FP)
     "recall": recall_score,  # This measure the number of negative class predictions (TP) / ( TP + FN )
-    "AUC": roc_auc_score,
+})
+
+
+MODELS = {
+    "BAAI/bge-base-en-v1.5": "HUGGINFACE",
+    "llmrails/ember-v1": "HUGGINGFACE",
+    "thenlper/gte-large": "HUGGINGFACE",
+    "text-embedding-3-small": "OPENAI",
+    "text-embedding-3-medium": "OPENAI",
+    "text-embedding-3-large": "OPENAI",
 }
 
-# Dataset Configuration
-MODELS = ["BAAI/bge-base-en-v1.5", "llmrails/ember-v1", "thenlper/gte-large"]
-OPENAI_MODELS = ["text-embedding-3-small"]
+def to_model_id(filename: str) -> str:
+    return os.path.basename(filename).replace("-train-cossim.arrow", "").replace("-test-cossim.arrow", "")
+
+
 
 # Stub Configuration
 GPU_CONFIG = gpu.A100()
@@ -20,7 +37,8 @@ GPU_CONFIG = gpu.A100()
 # Volume Configuration
 DATASET_VOLUME = Volume.persisted("datasets")
 DATASET_DIR = "/data"
-COSINE_SIMILARITY_DIR = f"{DATASET_DIR}/cosine-similarity"
+METRIC = "cosine-similarity"
+METRICS_DIR = f"{DATASET_DIR}/{METRIC}"
 
 stub = Stub("finetune")
 
@@ -34,58 +52,53 @@ image = Image.debian_slim().pip_install("pandas", "pyarrow", "scikit-learn")
     volumes={DATASET_DIR: DATASET_VOLUME},
     secrets=[Secret.from_name("huggingface-credentials"), Secret.from_name("wandb")],
 )
-def train_logistic_regression():
+def scorer(
+    model_name: str,
+    train_file: str,
+    test_file: str,
+    model= None,
+):x
     import pandas as pd
     import pyarrow as pa
     import glob
-    from sklearn.linear_model import LogisticRegression
     import os
 
-    # Get all .arrow files in the /cosine-similarity directory
-    arrow_files = glob.glob(f"{COSINE_SIMILARITY_DIR}/*-cossim.arrow")
-
-    # Extract model ids from file names
-    model_ids = set()
-    for file in arrow_files:
-        model_id = (
-            os.path.basename(file)
-            .replace("-train-cossim.arrow", "")
-            .replace("-test-cossim.arrow", "")
-        )
-        model_ids.add(model_id)
+    scoring_model = LogisticRegression() if model is None else model
+    
+    model_names = {
+        to_model_id(file)
+        for file in glob.glob(f"{COSINE_SIMILARITY_DIR}/*-cossim.arrow")
+    }
 
     print(f"Models with generated cosine similarities: {model_ids}")
 
     results = {}
-    for model_name in model_ids:
+    for model_name in model_names:
         train_file = f"{DATASET_DIR}/cosine-similarity/{model_name}-train-cossim.arrow"
+        train_df = pa.ipc.open_file(train_file).read_all().to_pandas()
+        X_train = train_df["cosine_score"].values.reshape(-1, 1)
+
         test_file = f"{DATASET_DIR}/cosine-similarity/{model_name}-test-cossim.arrow"
         # Load training data
-        train_df = pa.ipc.open_file(train_file).read_all().to_pandas()
-        # Load test data
         test_df = pa.ipc.open_file(test_file).read_all().to_pandas()
+        X_test = test_df["cosine_score"].values.reshape(-1, 1)
 
-        # Prepare training data
-        X_train = train_df["cosine_score"].values.reshape(-1, 1)
         y_train = train_df["is_duplicate"]
 
         # Prepare test data
-        X_test = test_df["cosine_score"].values.reshape(-1, 1)
         y_test = test_df["is_duplicate"]
 
         # Initialize the model
-        model = LogisticRegression()
+        model = ()
 
         # Train the model
-        model.fit(X_train, y_train)
-        predictions = model.predict(X_test)
+        scoring_model.fit(X_train, y_train)
+        y_pred = scoring_model.predict(X_test)
 
-        model_eval = {
-            metric: function(y_test, predictions)
+        results[model_name] = {
+            metric: function(y_test, y_pred)
             for metric, function in METRICS.items()
         }
-
-        results[model_name] = model_eval
 
     return results
 
@@ -93,18 +106,25 @@ def train_logistic_regression():
 @stub.local_entrypoint()
 def main():
     import json
-    from tabulate import tabulate
+    import pandas as pd
 
-    results = train_logistic_regression.remote()
+    for classification_model in [LogisticRegression(), DecisionTreeClassifier()]:
+        model_evals_df = scorer.remote(
+            model=classification_model
+        )
+        # results[model] = {
+        #     "accuracy": accuracy_score(y_test, predictions),  
+        #     "precision": precision_score(y_test, predictions),
+        #     "recall": recall_score(y_test, predictions),
+        #     "AUC": roc_auc_score(y_test, predictions)}
 
-    with open("output.json", "w") as f:
-        json.dump(results, f, indent=2)
-    values = []
-    eval_metrics = [eval for eval in METRICS]
-    eval_metrics.remove("AUC")
-    eval_metrics.insert(0, "AUC")
-    for model in results:
-        model_evals = [model] + [results[model][eval] for eval in eval_metrics]
-        values.append(model_evals)
-    values.sort(key=lambda x: x[1], reverse=True)
-    print(tabulate(values, ["Model Name", *eval_metrics]))
+        with open(f"{model.__name__}output.json", "w") as f:
+            json.dump(results, f, indent=2)
+        values = []
+
+        # just use a pandas dataframe
+        for model, result, in results_dict.items():
+            model_evals = [model] + [result[name] for name in METRIC.keys()]
+            values.append(model_evals)
+        values.sort(key=lambda x: x[1], reverse=True)
+        print(tabulate(values, ["Model Name", *eval_metrics]))
