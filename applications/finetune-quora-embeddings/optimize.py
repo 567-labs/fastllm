@@ -1,10 +1,7 @@
+import json
 from modal import Stub, Image, gpu, Volume, NetworkFileSystem
-from optuna import Trial
 from helpers.data import format_dataset, score_prediction
-import torch.nn as nn
 from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_auc_score
-import math
-from typing import List
 import pandas as pd
 
 # GPU Configuration
@@ -12,17 +9,10 @@ gpu_config = gpu.A100()
 
 # Finetuning Configuration ( Arrays are configurable parameters )
 MODELS = [
+    "sentence-transformers/all-mpnet-base-v2",
     "BAAI/bge-base-en-v1.5",
-    "WhereIsAI/UAE-Large-V1",
-    "thenlper/gte-small",
-    "intfloat/e5-small-v2",
-    "sentence-transformers/all-MiniLM-L12-v2",
+    # "BAAI/bge-large-en-v1.5",
 ]
-DENSE_LAYER_DIMS = [256, 512, 1024, 2048]
-ACTIVATION_FUNCTIONS = [
-    "Tanh",
-    "ReLU",
-]  # This is a torch func, we use getattr to read it
 SCHEDULER = [
     "constantlr",
     "warmupconstant",
@@ -30,32 +20,31 @@ SCHEDULER = [
     "warmupcosine",
     "warmupcosinewithhardrestarts",
 ]
-DATASET_SIZE = [1000, 2000, 4000, 8000, 16000, 32000, 64000, 128000]
-WARMUP_STEPS = [500, 1000, 1500, 2000]
-BATCH_SIZE = [32, 64, 96]
+DATASET_SIZE = [2000, 4000, 8000, 16000]  # , 32000, 64000, 128000]
+WARMUP_STEPS = [500, 1000, 1500]
+BATCH_SIZE = [32, 64]
 MODEL_SAVE_PATH = "/output"
-OPTIMIZATION_METRIC_FUNC = roc_auc_score
 MIN_LEARNING_RATE = 1e-5
 MAX_LEARNING_RATE = 1e-3
-MIN_EPOCHS = 6
-MAX_EPOCHS = 15
+MAX_EPOCHS = 3
 FREEZE_EMBEDDING_MODEL = [
     True,
     False,
-]  # True: Embedding Model Dimensions will be frozen
+]
 
 STUDY_NFS = NetworkFileSystem.new("modal-optimization")
 JOURNAL_PATH = "/root/cache/journal.log"
 STUDY_NAME = "optuna-optimization"
 
-WORKERS = 5
-NUM_TRIALS = 30
+NUM_PARALLEL_JOBS = 3
+NUM_TRIALS = 6
 
 # DATASET CONFIG
 DATASET_NAME = "567-labs/cleaned-quora-dataset-train-test-split"
 DATASET_DIR = "/data"
 DATASET_VOLUME = Volume.persisted("datasets")
 CACHE_DIRECTORY = f"{DATASET_DIR}/cached-embeddings"
+TEST_SET_SIZE = 10000
 
 # Eval Configuration
 METRICS = {
@@ -64,10 +53,6 @@ METRICS = {
     "recall": recall_score,  # This measure the number of negative class predictions (TP) / ( TP + FN )
     "AUC": roc_auc_score,
 }
-
-# Final Result
-RESULT_FILE = "optimize.csv"
-DATAFRAME_PICKLE_PATH = "optimize_df.pkl"
 
 stub = Stub("modal-optimization")
 
@@ -86,101 +71,110 @@ image = (
 )
 
 
-def objective(trial: Trial, existing_experiments: List[dict]):
+def objective(model_name: str, dataset_size: int, trial):
     from sentence_transformers import SentenceTransformer, losses, evaluation, models
     from torch.utils.data import DataLoader
     from datasets import load_from_disk
+    import torch.nn as nn
     import shutil
     import os
 
-    # delete the previously saved model if it exists
+    # Load the model
+    embedding_model = SentenceTransformer(model_name)
+
+    # Delete the directory if it exists
     if os.path.exists(MODEL_SAVE_PATH):
-        # Delete the directory if it exists
         shutil.rmtree(MODEL_SAVE_PATH)
 
-    params = {
-        "model": trial.suggest_categorical("model", MODELS),
-        "dense_out_features": trial.suggest_categorical(
-            "dense_out_features", DENSE_LAYER_DIMS
-        ),
-        "activation_function": trial.suggest_categorical(
-            "activation_function", ACTIVATION_FUNCTIONS
-        ),
-        "scheduler": trial.suggest_categorical("scheduler", SCHEDULER),
-        "dataset_size": trial.suggest_categorical("dataset_size", DATASET_SIZE),
-        "epochs": trial.suggest_int("epochs", MIN_EPOCHS, MAX_EPOCHS),
-        "warmup_steps": trial.suggest_categorical("warmup_steps", WARMUP_STEPS),
-        "learning_rate": trial.suggest_float(
-            "learning_rate", MIN_LEARNING_RATE, MAX_LEARNING_RATE
-        ),
-        "freeze_embedding_model": trial.suggest_categorical(
-            "freeze_embedding_model", FREEZE_EMBEDDING_MODEL
-        ),
-        "batch_size": trial.suggest_categorical("batch_size", BATCH_SIZE),
-    }
-    # We load our model and freeze the layers ( see https://github.com/UKPLab/sentence-transformers/issues/680 )
-    embedding_model = SentenceTransformer(params["model"])
+    # Suggest parameters
 
-    if params["freeze_embedding_model"]:
+    # For dimensionality of the embedding model
+    dim_emb = embedding_model.get_sentence_embedding_dimension()
+    dense_out_features = trial.suggest_int(
+        "dense_out_features", int(dim_emb // 2), int(dim_emb * 1.2)
+    )
+
+    lr = trial.suggest_float("learning_rate", MIN_LEARNING_RATE, MAX_LEARNING_RATE)
+    scheduler = trial.suggest_categorical("scheduler", SCHEDULER)
+    warmup_steps = trial.suggest_categorical("warmup_steps", WARMUP_STEPS)
+    freeze_embedding_model = trial.suggest_categorical(
+        "freeze_embedding_model", FREEZE_EMBEDDING_MODEL
+    )
+    batch_size = trial.suggest_categorical("batch_size", BATCH_SIZE)
+    num_epochs = MAX_EPOCHS
+
+    # Freeze the embedding model
+    if freeze_embedding_model:
+        print("Freezing the embedding model")
         auto_model = embedding_model._first_module().auto_model
         for param in auto_model.parameters():
             param.requires_grad = False
 
+    # Define the model architecture with additional dense layer
     dense_model = models.Dense(
         in_features=embedding_model.get_sentence_embedding_dimension(),
-        out_features=params["dense_out_features"],
-        activation_function=getattr(nn, params["activation_function"])(),
+        out_features=dense_out_features,
+        activation_function=nn.Tanh(),
     )
 
-    model = SentenceTransformer(modules=[embedding_model, dense_model])
-    print(
-        f"Initialized Sentence Transformer model and running job with params of {params}"
+    pooling_model = models.Pooling(embedding_model.get_sentence_embedding_dimension())
+
+    # Initialize the model
+    model = SentenceTransformer(
+        modules=[embedding_model, pooling_model, dense_model], device="cuda"
     )
-    # Load in the dataset
+
+    # Load the dataset
+    print(f"Loading dataset with {dataset_size} samples")
     dataset = load_from_disk(f"{DATASET_DIR}/{DATASET_NAME}")
-    train_dataset = dataset["train"].select(range(params["dataset_size"]))
-    test_dataset = dataset["test"]
+    train_dataset = dataset["train"].select(range(dataset_size))
+    test_dataset = dataset["test"].select(range(TEST_SET_SIZE))
+
+    # Format the dataset
+    train_examples, test_examples = (
+        format_dataset(train_dataset),
+        format_dataset(test_dataset),
+    )
+
+    print("Creating the dataloaders")
+    train_dataloader = DataLoader(train_examples, shuffle=True, batch_size=batch_size)
+
+    print("Creating the evaluator & loss function")
+    evaluator = evaluation.BinaryClassificationEvaluator.from_input_examples(
+        test_examples, batch_size=batch_size
+    )
 
     train_loss = losses.OnlineContrastiveLoss(model)
-    train_examples = format_dataset(train_dataset)
-    test_examples = format_dataset(test_dataset)
-    train_dataloader = DataLoader(
-        train_examples, shuffle=True, batch_size=params["batch_size"]
-    )
 
-    evaluator = evaluation.BinaryClassificationEvaluator.from_input_examples(
-        test_examples, batch_size=params["batch_size"]
-    )
-
+    print("Training the model")
+    print(json.dumps(trial.params, indent=2))
     model.fit(
-        optimizer_params={
-            "lr": params["learning_rate"],
-        },
         train_objectives=[(train_dataloader, train_loss)],
         evaluator=evaluator,
-        epochs=params["epochs"],
-        warmup_steps=params["warmup_steps"],
+        warmup_steps=warmup_steps,
+        scheduler=scheduler,
+        optimizer_params={"lr": lr},
         save_best_model=True,
         show_progress_bar=True,
+        epochs=num_epochs,
         output_path=MODEL_SAVE_PATH,
-        scheduler=params["scheduler"],
     )
 
+    # Reload the model with the best weights
     model = SentenceTransformer(MODEL_SAVE_PATH)
 
+    # Score the model
+    print("Scoring the model")
     predictions, test_labels = score_prediction(model, train_dataset, test_dataset)
 
+    # Evaluate the model
     eval_results = {
-        metric: function(test_labels, predictions)
+        metric: round(function(test_labels, predictions), 4)
         for metric, function in METRICS.items()
     }
+    print(json.dumps(eval_results, indent=2))
 
-    existing_experiments.append(eval_results | params)
-    print("Logging results so far")
-    for idx, experiment in enumerate(existing_experiments):
-        print(f"Idx: {idx}, Result: {experiment}")
-
-    return OPTIMIZATION_METRIC_FUNC(test_labels, predictions)
+    return accuracy_score(test_labels, predictions)
 
 
 @stub.function(
@@ -190,21 +184,32 @@ def objective(trial: Trial, existing_experiments: List[dict]):
     volumes={DATASET_DIR: DATASET_VOLUME},
     timeout=86400,
 )
-def optimize_hyperparameters(n_trials: int):
+def optimize_hyperparameters(model_name: str, dataset_size: int, n_trials: int):
     import optuna
 
+    # Set it so that we can resume a study in the event that something fails
     storage = optuna.storages.JournalStorage(
         optuna.storages.JournalFileStorage(JOURNAL_PATH)
     )
-    results = []
-    # Set it so that we can resume a study in the event that something fails
     study = optuna.create_study(
-        study_name="finetuning", storage=storage, load_if_exists=True
+        study_name="finetuning",
+        direction="maximize",
+        storage=storage,
+        load_if_exists=True,
     )
 
-    study.optimize(lambda trial: objective(trial, results), n_trials=n_trials)
+    study.optimize(
+        lambda trial: objective(model_name, dataset_size, trial),
+        n_trials=n_trials,
+        n_jobs=NUM_PARALLEL_JOBS,
+    )
 
-    return results
+    best_params = study.best_params
+    best_params["model_name"] = model_name
+    best_params["dataset_size"] = dataset_size
+    print(f"Best parameters for {model_name} with {dataset_size} samples")
+    print(json.dumps(best_params, indent=2))
+    return best_params
 
 
 @stub.function(
@@ -228,39 +233,29 @@ def get_dataframe():
 
 @stub.local_entrypoint()
 def main():
-    import os
-    import csv
+    import time
+
+    date = time.strftime("%Y-%m-%d-%H-%M")
 
     results = []
-    trials_per_worker = math.ceil(NUM_TRIALS / WORKERS)
 
-    for resp in optimize_hyperparameters.map(
-        [trials_per_worker for _ in range(WORKERS)],
+    for response in optimize_hyperparameters.starmap(
+        [
+            (model, dataset_size, NUM_TRIALS)
+            for model in MODELS
+            for dataset_size in DATASET_SIZE
+        ],
         order_outputs=False,
         return_exceptions=True,
     ):
-        if isinstance(resp, Exception):
-            print(f"Encountered Exception of {resp}")
+        if isinstance(response, Exception):
+            print(f"Encountered Exception of {response}")
             continue
+        best_params = response
+        results.append(best_params)
 
-        results.extend(resp)
-
-    # Check if the file exists
-    if not os.path.isfile(RESULT_FILE):
-        # Create the file if it doesn't exist
-        with open(RESULT_FILE, "w") as output_file:
-            keys = results[0].keys()
-            dict_writer = csv.DictWriter(output_file, keys)
-            dict_writer.writeheader()
-
-    # Append new results to the file
-    with open(RESULT_FILE, "a+") as output_file:
-        keys = results[0].keys()
-        dict_writer = csv.DictWriter(output_file, keys)
-        dict_writer.writerows(results)
+    df = pd.DataFrame(results)
+    df.to_csv(f"./paramsearch/{date}_optuna_trial_results.csv", index=False)
 
     df = get_dataframe.remote()
-    if os.path.exists(DATAFRAME_PICKLE_PATH):
-        prev_df = pd.read_pickle(DATAFRAME_PICKLE_PATH)
-        df = pd.concat([prev_df, df])
-    df.to_pickle(DATAFRAME_PICKLE_PATH)
+    df.to_csv(f"./paramsearch/{date}_optuna_journal_results.csv", index=False)

@@ -1,4 +1,3 @@
-import itertools
 from typing import List
 from modal import Image, Stub, Volume, Secret, gpu
 import os

@@ -1,4 +1,3 @@
-from sentence_transformers import SentenceTransformer
 import pandas as pd
 
 
@@ -87,7 +86,7 @@ def new_dataset(embeddings: pd.DataFrame, dataset):
             raise e
 
 
-def embed(model: SentenceTransformer, text_to_embed) -> pd.DataFrame:
+def embed(model, text_to_embed) -> pd.DataFrame:
     """
     This is a generic function which takes in a sentence transformer model and a generator which generates results in the form of (id,text). It then returns a pandas dataframe which contains the relevant embeddings
 

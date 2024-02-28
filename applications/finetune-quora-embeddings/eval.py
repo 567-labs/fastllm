@@ -107,4 +107,5 @@ def main():
         model_evals = [model] + [results[model][eval] for eval in eval_metrics]
         values.append(model_evals)
     values.sort(key=lambda x: x[1], reverse=True)
+    # just pandas dataframe
     print(tabulate(values, ["Model Name", *eval_metrics]))
