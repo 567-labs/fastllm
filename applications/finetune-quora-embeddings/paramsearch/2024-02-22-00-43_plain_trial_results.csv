@@ -1,2 +1,0 @@
-metric_accuracy,metric_precision,metric_recall,metric_AUC,model_name,dataset_size,dense_out_features,learning_rate,scheduler,warmup_steps,freeze_embedding_model,batch_size,num_epochs
-0.8728,0.6797,0.8452,0.8631,sentence-transformers/all-mpnet-base-v2,16000,201,0.0008578027047703662,warmupcosine,1000,True,32,8
