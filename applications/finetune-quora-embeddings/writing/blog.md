@@ -1,5 +1,7 @@
 # Outline for Modal
 
+> Even with 2000 examples, finetuning a embedding model with modal labs can outperform closed source models like openai or cohere. This is a huge win for companies that have any amount of data. 
+
 ## Introduction
 
 - Our previous post emphasized the rapid embedding of data and its benefits for experimentation and iteration through parallelism.
