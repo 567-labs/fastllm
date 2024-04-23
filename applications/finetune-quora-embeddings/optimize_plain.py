@@ -5,41 +5,31 @@ from modal import Stub, Image, gpu, Volume, NetworkFileSystem
 from helpers.data import format_dataset, score_prediction
 from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_auc_score
 import pandas as pd
+import os
 
 # GPU Configuration
 gpu_config = gpu.A10G()
 
 # Finetuning Configuration ( Arrays are configurable parameters )
 MODELS = [
-    "sentence-transformers/all-mpnet-base-v2",
+    "jinaai/jina-embeddings-v2-small-en",
+    "all-MiniLM-L12-v2",
     "BAAI/bge-base-en-v1.5",
-    # "BAAI/bge-large-en-v1.5",
+    "sentence-transformers/all-distilroberta-v1",
+    "sentence-transformers/all-mpnet-base-v2",
 ]
-SCHEDULER = [
-    "constantlr",
-    "warmupconstant",
-    "warmuplinear",
-    "warmupcosine",
-    "warmupcosinewithhardrestarts",
-]
-DATASET_SIZE = [16000, 32000, 64000, 128000]
-WARMUP_STEPS = [500, 1000, 1500]
-DENSE_OUT_FEATURES = [64, 128, 256, 512, 1024]
-BATCH_SIZE = [32, 64]
-MODEL_SAVE_PATH = "/output"
-MIN_LEARNING_RATE = 1e-5
-MAX_LEARNING_RATE = 1e-3
+DATASET_SIZE = [100, 200, 400, 800, 1600, 3200, 6400, 12800, 25600, 51200, 102400]
+DENSE_OUT_FEATURES = [256, 512]
+SCHEDULER = ["warmuplinear"]
+WARMUP_STEPS = [500]
+FREEZE_EMBEDDING_MODEL = [True]
+BATCH_SIZE = [32]
 MAX_EPOCHS = 8
-
-STUDY_NFS = NetworkFileSystem.new("modal-optimization")
-JOURNAL_PATH = "/root/cache/journal.log"
-STUDY_NAME = "optuna-optimization"
 
 # DATASET CONFIG
 DATASET_NAME = "567-labs/cleaned-quora-dataset-train-test-split"
 DATASET_DIR = "/data"
-DATASET_VOLUME = Volume.persisted("datasets")
-CACHE_DIRECTORY = f"{DATASET_DIR}/cached-embeddings"
+DATASET_VOLUME = Volume.from_name("modal-optimization", create_if_missing=True)
 TEST_SET_SIZE = 10000
 
 # Eval Configuration
@@ -62,12 +52,12 @@ def download_model():
 
 image = (
     Image.debian_slim()
-    .pip_install("sentence-transformers", "torch", "datasets", "optuna", "pandas")
+    .pip_install("sentence-transformers", "torch", "datasets")
     .run_function(download_model)
 )
 
 
-@dataclass
+@dataclass(frozen=True)
 class ModelConfig:
     model_name: str
     dataset_size: int
@@ -89,7 +79,6 @@ def random_search_config(model_name, dataset_size, freeze_embedding_model):
     scheduler = random.choice(SCHEDULER)
     warmup_steps = random.choice(WARMUP_STEPS)
     batch_size = random.choice(BATCH_SIZE)
-    learning_rate = random.uniform(MIN_LEARNING_RATE, MAX_LEARNING_RATE)
     dense_out_features = random.choice(DENSE_OUT_FEATURES)
     num_epochs = MAX_EPOCHS  # This could also be made configurable if desired
 
@@ -98,7 +87,7 @@ def random_search_config(model_name, dataset_size, freeze_embedding_model):
         dataset_size=dataset_size,
         freeze_embedding_model=freeze_embedding_model,
         dense_out_features=dense_out_features,
-        learning_rate=learning_rate,
+        learning_rate=0.0001,
         scheduler=scheduler,
         warmup_steps=warmup_steps,
         batch_size=batch_size,
@@ -109,7 +98,6 @@ def random_search_config(model_name, dataset_size, freeze_embedding_model):
 @stub.function(
     image=image,
     gpu=gpu_config,
-    network_file_systems={"/root/cache": STUDY_NFS},
     volumes={DATASET_DIR: DATASET_VOLUME},
     concurrency_limit=50,
     allow_concurrent_inputs=True,
@@ -139,6 +127,8 @@ def objective(
 
     # Load the model
     embedding_model = SentenceTransformer(model_name)
+    model_config_hash = hash(config)
+    MODEL_SAVE_PATH = f"/output/{model_config_hash}"
 
     # Delete the directory if it exists
     if os.path.exists(MODEL_SAVE_PATH):
@@ -219,11 +209,32 @@ def objective(
 
 
 def generate_configs(n_trials):
+    configs = set()
     for model, sample_size, freeze_embedding_model in product(
-        MODELS, DATASET_SIZE, [True, False]
+        MODELS, DATASET_SIZE, FREEZE_EMBEDDING_MODEL
     ):
         for _ in range(n_trials):
-            yield random_search_config(model, sample_size, freeze_embedding_model)
+            config = random_search_config(model, sample_size, freeze_embedding_model)
+            config_hash = hash(config)
+            if config_hash not in configs:
+                yield config
+                configs.add(config_hash)
+
+
+@stub.function(image=image, volumes={DATASET_DIR: DATASET_VOLUME})
+def download_dataset():
+    from datasets import load_dataset
+
+    dataset_path = f"{DATASET_DIR}/{DATASET_NAME}"
+
+    if os.path.exists(dataset_path):
+        print("Dataset Exists")
+        return
+
+    dataset = load_dataset(DATASET_NAME)
+
+    dataset.save_to_disk(dataset_path)
+    DATASET_VOLUME.commit()
 
 
 @stub.local_entrypoint()
@@ -232,10 +243,11 @@ def main():
 
     date = time.strftime("%Y-%m-%d-%H-%M")
 
-    results = []
+    download_dataset.remote()
 
+    results = []
     for experiment_result in objective.map(
-        generate_configs(n_trials=5), order_outputs=True, return_exceptions=True
+        generate_configs(n_trials=1), return_exceptions=True
     ):
         if isinstance(experiment_result, Exception):
             print(f"Encountered Exception of {experiment_result}")
