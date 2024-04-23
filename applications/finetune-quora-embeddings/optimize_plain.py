@@ -18,7 +18,7 @@ MODELS = [
     "sentence-transformers/all-distilroberta-v1",
     "sentence-transformers/all-mpnet-base-v2",
 ]
-DATASET_SIZE = [25600, 1600, 800, 12800, 200, 3200, 102400, 100, 51200, 6400, 400]
+DATASET_SIZE = [100, 200, 400, 800, 1600, 3200, 6400, 12800, 25600, 51200, 102400]
 DENSE_OUT_FEATURES = [256, 512]
 SCHEDULER = ["warmuplinear"]
 WARMUP_STEPS = [500]
