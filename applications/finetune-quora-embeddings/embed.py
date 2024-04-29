@@ -53,6 +53,7 @@ def has_embedding_cache(model_name):
 
 image = (
     Image.debian_slim()
+    .env({"Random": "123"})
     .pip_install(
         "cohere",
         "datasets",
