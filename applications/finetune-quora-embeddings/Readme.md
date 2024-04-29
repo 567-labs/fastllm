@@ -7,8 +7,9 @@ This example shows how we can perform a hyper-parameter search using modal's GPU
 To quickly get started, we've provided a few files that might be of interest
 
 1. `main.py` : This showcases how you can use Modal to finetune a model given a set of hyper-parameters
-2. `optimize_plain.py` : This showcases how we can perform a quick hyper-parameter search using Modal's containers.
-3. `optimize.py` : This showcases how we can use `Optuna` to perform hyper-parameter search using Modal. This takes significantly longer since Optuna has a variety of different heuristics to optimize the pruning of hyper-parameters to find the optimal hyper-parameters.
+2. `optimize_plain.py` : This showcases how we can perform a quick hyper-parameter search using random search
+3. `optimize_grid.py` : This showcases how we can perform a quick hyper-parameter search using grid search
+4. `optimize.py` : This showcases how we can use `Optuna` to perform hyper-parameter search using Modal. This takes significantly longer since Optuna has a variety of different heuristics to optimize the pruning of hyper-parameters to find the optimal hyper-parameters.
 
 ## Getting Started
 
